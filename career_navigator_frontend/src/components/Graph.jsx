@@ -33,7 +33,7 @@ export default function Graph({
   initialGraph,
 }) {
   // Internal state for graph data and UX
-  const [graph, setGraph] = useState(null); // mapped graph { nodes, links }
+  const [graph, setGraph] = useState(null); // normalized graph { nodes, links(sourceId/targetId), meta? }
   const [lastGoodGraph, setLastGoodGraph] = useState(null);
   const lastGoodRef = useRef(null);
   useEffect(() => {
@@ -261,9 +261,75 @@ export default function Graph({
     initializedRef.current = true;
   }, [dims.width, dims.height]);
 
-  // Draw/Update the graph whenever data or dimensions change
+  // Prepare nodes and links for D3: ensure role nodes exist, map links to node objects, and validate.
+  const preparedData = useMemo(() => {
+    if (!graph || !Array.isArray(graph.nodes)) return { nodes: [], simLinks: [], meta: {} };
+
+    let nodes = [...graph.nodes];
+    const meta = (graph && graph.meta) || {};
+
+    // Ensure role nodes exist for endpoints like "role:1" and "role:2"
+    const ensureRoleNode = (roleId, label) => {
+      if (!roleId || !Number.isFinite(Number(roleId))) return;
+      const id = `role:${Number(roleId)}`;
+      if (!nodes.some((n) => String(n.id) === id)) {
+        nodes.push({
+          id,
+          type: "role",
+          label: label || `Role ${roleId}`,
+          entity_id: Number(roleId),
+        });
+      }
+    };
+
+    // Synthesize role nodes from meta if missing; fallback to props if meta absent
+    if (meta?.fromRole?.id) ensureRoleNode(meta.fromRole.id, meta.fromRole.name || null);
+    else if (effectiveFromRoleId) ensureRoleNode(effectiveFromRoleId, null);
+
+    if (meta?.toRole?.id) ensureRoleNode(meta.toRole.id, meta.toRole.name || null);
+    else if (effectiveToRoleId) ensureRoleNode(effectiveToRoleId, null);
+
+    // Build id -> node map
+    const nodeById = new Map(nodes.map((n) => [String(n.id), n]));
+
+    // Map normalized links to simulation links with concrete node objects
+    const rawLinks = Array.isArray(graph.links) ? graph.links : [];
+    const simLinks = [];
+    for (const l of rawLinks) {
+      // Backward compatibility for any old shapes
+      let s = l?.sourceId ?? (typeof l?.source === "object" ? l?.source?.id : l?.source);
+      let t = l?.targetId ?? (typeof l?.target === "object" ? l?.target?.id : l?.target);
+      if (s == null || t == null) {
+        try {
+          // eslint-disable-next-line no-console
+          console.warn("[Graph] skipping link with missing endpoints", l);
+        } catch {}
+        continue;
+      }
+      const sid = String(s);
+      const tid = String(t);
+      const sNode = nodeById.get(sid);
+      const tNode = nodeById.get(tid);
+      if (!sNode || !tNode) {
+        try {
+          // eslint-disable-next-line no-console
+          console.warn("[Graph] invalid link - node not found", { sourceId: sid, targetId: tid });
+        } catch {}
+        continue;
+      }
+      simLinks.push({ ...l, source: sNode, target: tNode });
+    }
+
+    return { nodes, simLinks, meta };
+  }, [graph, effectiveFromRoleId, effectiveToRoleId]);
+
+  // Draw/Update the graph whenever prepared data or dimensions change
   useEffect(() => {
-    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.links)) return;
+    const { nodes, simLinks } = preparedData;
+    if (!nodes || !simLinks) return;
+    if (!Array.isArray(nodes) || !Array.isArray(simLinks)) return;
+    if (!nodes.length) return;
+
     const svgEl = svgRef.current;
     if (!svgEl || !initializedRef.current) return;
 
@@ -271,16 +337,16 @@ export default function Graph({
     svg.attr("viewBox", `0 0 ${dims.width} ${dims.height}`);
 
     const linkKey = (d) => {
-      const s = typeof d.source === "object" ? d.source?.id : d.source;
-      const t = typeof d.target === "object" ? d.target?.id : d.target;
+      const s = typeof d.source === "object" ? d.source?.id : d.sourceId || d.source;
+      const t = typeof d.target === "object" ? d.target?.id : d.targetId || d.target;
       return `${s}→${t}`;
     };
 
-    // Links join
+    // Links join (use prepared simulation links)
     const link = d3
       .select(linkGroupRef.current)
       .selectAll("line")
-      .data(graph.links, linkKey)
+      .data(simLinks, linkKey)
       .join(
         (enter) =>
           enter
@@ -300,7 +366,7 @@ export default function Graph({
     const nodeSel = d3
       .select(nodeGroupRef.current)
       .selectAll("circle")
-      .data(graph.nodes, (d) => d.id)
+      .data(nodes, (d) => d.id)
       .join(
         (enter) =>
           enter
@@ -322,7 +388,7 @@ export default function Graph({
     const label = d3
       .select(labelGroupRef.current)
       .selectAll("text")
-      .data(graph.nodes, (d) => d.id)
+      .data(nodes, (d) => d.id)
       .join(
         (enter) =>
           enter
@@ -335,33 +401,30 @@ export default function Graph({
         (exit) => exit.remove()
       );
 
-    // Simulation setup or update
-    let sim = simulationRef.current;
-    if (!sim) {
-      sim = d3.forceSimulation([]);
-      simulationRef.current = sim;
-    }
+    // Stop any previous simulation before creating a new one for this data update
+    try {
+      simulationRef.current?.stop();
+    } catch {}
+
+    // Create a new simulation for this dataset
+    const sim = d3.forceSimulation(nodes);
+    simulationRef.current = sim;
 
     sim
       .force(
         "link",
-        (sim.force("link") ||
-          d3.forceLink().id((d) => d.id)).distance((l) => {
-          const t = l.type || l.kind;
-          if (t === "requires" || t === "needs") return 70;
-          return 50;
-        })
+        d3
+          .forceLink(simLinks)
+          .id((d) => d.id)
+          .distance((l) => {
+            const t = l.type || l.kind;
+            if (t === "requires" || t === "needs") return 70;
+            return 50;
+          })
       )
       .force("charge", d3.forceManyBody().strength(-250))
       .force("center", d3.forceCenter(dims.width / 2, dims.height / 2))
       .force("collision", d3.forceCollide().radius((d) => (d.type === "role" ? 26 : 18)).strength(0.7));
-
-    // Apply data to simulation
-    const linkForce = sim.force("link");
-    if (linkForce) {
-      linkForce.links(graph.links);
-    }
-    sim.nodes(graph.nodes);
 
     // Tick updates
     sim.on("tick", () => {
@@ -401,14 +464,21 @@ export default function Graph({
     try {
       // eslint-disable-next-line no-console
       console.debug("[Graph] render draw", {
-        nodes: graph.nodes.length,
-        links: graph.links.length,
+        nodes: nodes.length,
+        links: simLinks.length,
         dims,
       });
     } catch {}
-  }, [graph, dims.width, dims.height]);
 
-  // Stop simulation on unmount
+    // Cleanup: stop simulation for this render when dependencies change
+    return () => {
+      try {
+        sim.stop();
+      } catch {}
+    };
+  }, [preparedData, dims.width, dims.height]); // re-render when data or dimensions change
+
+  // Stop simulation on unmount as a safeguard
   useEffect(() => {
     return () => {
       try {
@@ -504,15 +574,24 @@ export default function Graph({
             Number.isInteger(meta.percent) ? meta.percent : n.percent_complete || undefined,
         };
       });
-      const cleanLinks = (graph.links || []).map((l) => ({
-        source: String(typeof l.source === "object" ? l.source.id : l.source),
-        target: String(typeof l.target === "object" ? l.target.id : l.target),
-        type: l.type || l.kind || "rel",
-        level: typeof l.level === "number" ? l.level : undefined,
-        from: l.from || undefined,
-        color: typeof l.color === "string" ? l.color : undefined,
-        is_gap: typeof l.is_gap === "boolean" ? l.is_gap : undefined,
-      }));
+      // Persist using backend-expected shape: source/target as string ids
+      const cleanLinks = (graph.links || []).map((l) => {
+        const src =
+          l.sourceId ??
+          (typeof l.source === "object" ? l.source.id : l.source);
+        const tgt =
+          l.targetId ??
+          (typeof l.target === "object" ? l.target.id : l.target);
+        return {
+          source: String(src),
+          target: String(tgt),
+          type: l.type || l.kind || "rel",
+          level: typeof l.level === "number" ? l.level : undefined,
+          from: l.from || undefined,
+          color: typeof l.color === "string" ? l.color : undefined,
+          is_gap: typeof l.is_gap === "boolean" ? l.is_gap : undefined,
+        };
+      });
       const payload = {
         name: name?.trim() || `Roadmap ${effectiveFromRoleId ?? "?"}→${effectiveToRoleId ?? "?"}`,
         user_identifier: userId,
@@ -522,8 +601,9 @@ export default function Graph({
           nodes: cleanNodes,
           links: cleanLinks,
           meta: {
-            fromRole: { id: effectiveFromRoleId },
-            toRole: { id: effectiveToRoleId },
+            ...(graph.meta || {}),
+            fromRole: { id: effectiveFromRoleId, ...(graph.meta?.fromRole || {}) },
+            toRole: { id: effectiveToRoleId, ...(graph.meta?.toRole || {}) },
             stats: { nodes: cleanNodes.length, links: cleanLinks.length },
           },
         },
