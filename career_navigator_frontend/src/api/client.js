@@ -14,7 +14,7 @@ const API_BASE =
     process &&
     process.env &&
     (process.env.REACT_APP_API_BASE || process.env.REACT_APP_BACKEND_URL)) ||
-  "http://localhost:3001";
+  "https://557d21b2.api.kavia.app";
 
 function buildUrl(path, params) {
   const url = new URL(path, API_BASE);

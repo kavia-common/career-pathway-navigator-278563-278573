@@ -1,4 +1,4 @@
-/**
+  `/**
  * Bootstrap runtime-safe public env variables into window.__ENV__.
  * This avoids referencing process at runtime in the browser while remaining CRA-compatible.
  */
