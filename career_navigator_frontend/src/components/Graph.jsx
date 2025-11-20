@@ -27,6 +27,12 @@ export default function Graph({ fromRole, toRole, provideData }) {
     const res = await apiGet('/graph', { fromRole: String(fromRole || ''), toRole: String(toRole || '') });
     if (res.ok && res.data) {
       const mapped = mapGraphPayload(res.data);
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('[Graph] /graph meta', res.data.meta || {});
+        // eslint-disable-next-line no-console
+        console.debug('[Graph] counts', mapped.counts);
+      } catch (_) {}
       if (mapped.counts.nodes === 0) {
         // fall back to mock for empty
         setData(getMockGraph());
@@ -196,7 +202,7 @@ export default function Graph({ fromRole, toRole, provideData }) {
               x2={l.x2}
               y2={l.y2}
               strokeWidth={1.5}
-              stroke={l.color || undefined}
+              stroke={l.color || (l.kind === 'requires' && '#ef4444' && l.color === undefined && l.is_gap ? '#ef4444' : (l.is_gap ? '#ef4444' : undefined))}
               aria-hidden="true"
             />
           ))}

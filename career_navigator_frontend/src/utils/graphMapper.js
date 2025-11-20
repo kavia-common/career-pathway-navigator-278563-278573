@@ -30,20 +30,41 @@ export function mapGraphPayload(payload) {
     : Array.isArray(payload.edges)
     ? payload.edges
     : [];
-  const links = rawLinks.map((e) => ({
-    source: String(typeof e.source === 'object' ? e.source.id : e.source),
-    target: String(typeof e.target === 'object' ? e.target.id : e.target),
-    kind: e.type || e.kind || 'rel',
-    level: typeof e.level === 'number' ? e.level : undefined,
-    from: e.from || e.from_,
-    is_gap: typeof e.is_gap === 'boolean' ? e.is_gap : undefined,
-    color: typeof e.color === 'string' ? e.color : undefined,
-  }));
+  const links = rawLinks.map((e) => {
+    const link = {
+      source: String(typeof e.source === 'object' ? e.source.id : e.source),
+      target: String(typeof e.target === 'object' ? e.target.id : e.target),
+      kind: e.type || e.kind || 'rel',
+      level: typeof e.level === 'number' ? e.level : undefined,
+      from: e.from || e.from_,
+      is_gap: typeof e.is_gap === 'boolean' ? e.is_gap : undefined,
+      color: typeof e.color === 'string' ? e.color : undefined,
+    };
+    // If backend marked a gap but no color provided, default to tailwind red-500 hex
+    if (link.is_gap && !link.color) {
+      link.color = '#ef4444';
+    }
+    return link;
+  });
 
+  const gapNodeCount = nodes.filter((n) => n.is_gap || n.color === '#ef4444').length;
+  const gapLinkCount = links.filter((l) => l.is_gap || l.color === '#ef4444').length;
+  try {
+    // Non-blocking debug info to help verify at least 3 red gap items appear
+    // eslint-disable-next-line no-console
+    console.debug('[graphMapper] mapped', {
+      nodes: nodes.length,
+      links: links.length,
+      gapNodeCount,
+      gapLinkCount,
+    });
+  } catch (_) {
+    // ignore console failures in strict environments
+  }
   return {
     nodes,
     links,
-    counts: { nodes: nodes.length, links: links.length },
+    counts: { nodes: nodes.length, links: links.length, gapNodes: gapNodeCount, gapLinks: gapLinkCount },
   };
 }
 
