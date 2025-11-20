@@ -31,11 +31,15 @@ It correctly bundles React in production mode and optimizes the build for the be
 
 The frontend expects a FastAPI backend running in previews at port 3001. The base URL is discovered in code via `REACT_APP_API_BASE` or falls back to the preview URL.
 
-- To override locally, create `.env` in `career_navigator_frontend`:
+- To override locally, create `.env` in `career_navigator_frontend` (see `.env.example`):
 ```
 REACT_APP_API_BASE=http://localhost:3001
 ```
 - Ensure the backend starts with SQLite seeding on first run and CORS allows `http://localhost:3000`.
+- If roles/skills do not render:
+  - Verify `REACT_APP_API_BASE` points to your backend preview URL.
+  - Open the browser console to ensure no CORS or network errors. The API client will warn if default base is used.
+  - Visit `${REACT_APP_API_BASE}/docs` to confirm the backend endpoints.
 
 ## End-to-End Verification Checklist
 

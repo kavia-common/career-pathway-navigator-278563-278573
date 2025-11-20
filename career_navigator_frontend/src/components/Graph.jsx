@@ -36,7 +36,7 @@ export default function Graph({ fromRole, toRole, provideData }) {
     } else {
       // fallback to mock when API not available
       setData(getMockGraph());
-      if (res.error) setError('Using mock data. Backend not reachable.');
+      if (res.error) setError('Using mock data. Backend not reachable. Check REACT_APP_API_BASE and CORS.');
     }
   };
 

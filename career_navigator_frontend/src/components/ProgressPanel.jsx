@@ -47,6 +47,9 @@ export default function ProgressPanel() {
       setRoleName(name);
       // Fetch role details to list required skills
       const roleDetail = name ? await apiGet(`/roles/${encodeURIComponent(name)}`) : { ok: false };
+      if (!roleDetail.ok) {
+        setNote('Failed to load role details. Verify API base and role name.');
+      }
       const reqSkills =
         roleDetail.ok && roleDetail.data && Array.isArray(roleDetail.data.skills)
           ? roleDetail.data.skills.map((rs) => ({
@@ -90,8 +93,17 @@ export default function ProgressPanel() {
     // optimistic update
     setItems((prev) => prev.map((it) => (it.skillId === skillId ? { ...it, status } : it)));
     if (!roleName) return;
+    // Resolve skill name from the validated required skills list
+    const skillMeta = skills.find((s) => String(s.id) === String(skillId));
+    const skillName = sanitizeLabel(skillMeta?.name || '');
+    // Guard: do not call backend for invalid/placeholder names
+    if (!skillName || skillName === 'NA') {
+      setNote('Cannot update progress for an invalid skill. Please select a valid role-required skill.');
+      // revert optimistic update
+      setItems((prev) => prev.map((it) => (it.skillId === skillId ? { ...it, status: 'not_started' } : it)));
+      return;
+    }
     // POST /roles/{role_name}/progress?skill_name=&status=&current_level=
-    const skillName = skills.find((s) => String(s.id) === String(skillId))?.name || '';
     const currentLevel =
       items.find((it) => String(it.skillId) === String(skillId))?.current_level ?? 0;
     const res = await apiPost(
@@ -100,7 +112,11 @@ export default function ProgressPanel() {
       { skill_name: skillName, status, current_level: currentLevel },
     );
     if (!res.ok) {
-      setNote('Failed to update progress. Please try again.');
+      const errDetail =
+        typeof res.data?.detail === 'object'
+          ? res.data.detail.message || 'Validation error'
+          : res.error || 'Request failed';
+      setNote(`Failed to update progress: ${errDetail}`);
       // revert if needed
       setItems((prev) => prev.map((it) => (it.skillId === skillId ? { ...it, status: 'not_started' } : it)));
     }

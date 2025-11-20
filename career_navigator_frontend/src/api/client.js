@@ -6,6 +6,14 @@ const BASE_URL =
     process.env.REACT_APP_API_BASE) ||
   DEFAULT_BASE;
 
+// Visible hint in console if falling back to default (helps preview env config)
+if (!process?.env?.REACT_APP_API_BASE) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[API] Using DEFAULT_BASE. To change, set REACT_APP_API_BASE in career_navigator_frontend/.env (e.g., http://localhost:3001)',
+  );
+}
+
 /**
  * Safely parse JSON without throwing; returns null on failure.
  */

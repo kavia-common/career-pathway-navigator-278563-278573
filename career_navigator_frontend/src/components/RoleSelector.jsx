@@ -19,6 +19,7 @@ export default function RoleSelector() {
     let active = true;
     (async () => {
       setLoading(true);
+      setError('');
       const res = await apiGet('/roles');
       if (!active) return;
       if (res.ok && Array.isArray(res.data)) {
@@ -29,8 +30,12 @@ export default function RoleSelector() {
         const cto = next.find((x) => x.name === 'CTO');
         if (!currentRole && ca) setCurrentRole(ca.id);
         if (!targetRole && cto) setTargetRole(cto.id);
+        if (next.length === 0) {
+          setError('No roles available. Verify backend is running and database seeded.');
+        }
       } else {
         setRoles([]);
+        setError(res.error || 'Failed to load roles. Check REACT_APP_API_BASE and CORS.');
       }
       setLoading(false);
     })();

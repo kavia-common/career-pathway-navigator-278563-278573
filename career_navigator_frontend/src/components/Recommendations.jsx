@@ -75,7 +75,7 @@ export default function Recommendations({ roleId, skillId }) {
       {loading ? (
         <div role="status">Loading recommendations...</div>
       ) : items.length === 0 ? (
-        <div role="note">No recommendations yet.</div>
+        <div role="note">No recommendations yet or failed to load.</div>
       ) : (
         <ul className="list" aria-label="Recommendations list">
           {items.map((it) => (
