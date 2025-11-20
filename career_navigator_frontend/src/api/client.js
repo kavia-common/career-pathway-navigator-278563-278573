@@ -5,16 +5,7 @@
  */
 
 // Resolve API base from public env (window.__ENV__) first, then CRA process.env, then localhost.
-const API_BASE =
-  (typeof window !== "undefined" &&
-    window.__ENV__ &&
-    typeof window.__ENV__.REACT_APP_API_BASE === "string" &&
-    window.__ENV__.REACT_APP_API_BASE) ||
-  (typeof process !== "undefined" &&
-    process &&
-    process.env &&
-    (process.env.REACT_APP_API_BASE || process.env.REACT_APP_BACKEND_URL)) ||
-  "https://557d21b2.api.kavia.app";
+const API_BASE = 'https://557d21b2.api.kavia.app';
 
 function buildUrl(path, params) {
   const url = new URL(path, API_BASE);
