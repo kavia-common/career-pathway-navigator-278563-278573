@@ -1,17 +1,54 @@
-const DEFAULT_BASE = 'https://vscode-internal-31939-beta.beta01.cloud.kavia.ai:3001';
-const BASE_URL =
-  (typeof process !== 'undefined' &&
-    process &&
-    process.env &&
-    process.env.REACT_APP_API_BASE) ||
-  DEFAULT_BASE;
+/**
+ * API client with safe environment resolution for browser runtime.
+ * Avoids referencing Node's `process` at runtime to prevent "process is not defined" errors.
+ * Resolution priority:
+ * 1) window.__ENV__.REACT_APP_API_BASE (set by env-bootstrap.js or external script)
+ * 2) process.env.REACT_APP_API_BASE (CRA replaces at build time; guarded)
+ * 3) Preview-safe default (backend preview on 3001)
+ */
 
-// Visible hint in console if falling back to default (helps preview env config)
-if (!process?.env?.REACT_APP_API_BASE) {
-  // eslint-disable-next-line no-console
-  console.warn(
-    '[API] Using DEFAULT_BASE. To change, set REACT_APP_API_BASE in career_navigator_frontend/.env (e.g., http://localhost:3001)',
-  );
+const DEFAULT_BASE = 'https://vscode-internal-31939-beta.beta01.cloud.kavia.ai:3001';
+
+/**
+ * Resolve the API base URL from safe sources.
+ */
+function resolveBaseUrl() {
+  const fromWindow =
+    (typeof window !== 'undefined' &&
+      window.__ENV__ &&
+      typeof window.__ENV__.REACT_APP_API_BASE === 'string' &&
+      window.__ENV__.REACT_APP_API_BASE) ||
+    '';
+
+  // Guarded access to process to avoid runtime ReferenceError in the browser
+  const fromProcess =
+    (typeof process !== 'undefined' &&
+      process &&
+      process.env &&
+      typeof process.env.REACT_APP_API_BASE === 'string' &&
+      process.env.REACT_APP_API_BASE) ||
+    '';
+
+  const raw = fromWindow || fromProcess || DEFAULT_BASE;
+  // Normalize: do not keep trailing spaces; leave slashes normalization to callers
+  return String(raw).trim();
+}
+
+const BASE_URL = resolveBaseUrl();
+
+// Visible hint if falling back to default; never crash on consoles without process/window
+try {
+  const usedDefault = BASE_URL === DEFAULT_BASE;
+  const hasWindow = typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.REACT_APP_API_BASE;
+  const hasProcess = typeof process !== 'undefined' && process?.env?.REACT_APP_API_BASE;
+  if (usedDefault && !(hasWindow || hasProcess)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[API] Using default API base. To change, set REACT_APP_API_BASE in career_navigator_frontend/.env (e.g., http://localhost:3001)'
+    );
+  }
+} catch {
+  // no-op
 }
 
 /**
@@ -29,8 +66,14 @@ function safeJsonParse(text) {
 // PUBLIC_INTERFACE
  */
 export async function apiGet(path, params = {}) {
-  /** Perform GET request to backend with basic error handling */
-  const url = new URL((BASE_URL || '').replace(/\/+$/, '') + path);
+  /**
+   * Perform GET request to backend with basic error handling
+   * path: string like '/roles'
+   * params: object appended as query string
+   * returns: { ok: boolean, status: number, data: any|null, error?: string }
+   */
+  const base = (BASE_URL || '').replace(/\/*$/, '');
+  const url = new URL(base + path);
   Object.entries(params || {}).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') {
       url.searchParams.set(String(k), String(v));
@@ -57,8 +100,13 @@ export async function apiGet(path, params = {}) {
 // PUBLIC_INTERFACE
  */
 export async function apiPost(path, body = {}, query = undefined) {
-  /** Perform POST request with optional query params and safe parsing */
-  const base = (BASE_URL || '').replace(/\/+$/, '');
+  /**
+   * Perform POST request with optional query params and safe parsing
+   * path: string like '/roles/{name}/progress'
+   * body: request body object (optional)
+   * query: object appended as query string (optional)
+   */
+  const base = (BASE_URL || '').replace(/\/*$/, '');
   const url = new URL(base + path);
   if (query && typeof query === 'object') {
     Object.entries(query).forEach(([k, v]) => {
@@ -89,6 +137,8 @@ export async function apiPost(path, body = {}, query = undefined) {
 // PUBLIC_INTERFACE
  */
 export function getBaseUrl() {
-  /** Expose configured API base URL */
+  /**
+   * Expose configured API base URL
+   */
   return BASE_URL;
 }
