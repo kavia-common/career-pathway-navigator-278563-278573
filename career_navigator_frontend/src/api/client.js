@@ -74,8 +74,8 @@ export async function apiPost(path, body = {}, params) {
 }
 
 // PUBLIC_INTERFACE
-export async function getGraph(fromRole, toRole, progressMap) {
-  /** Fetch graph; optional progressMap is encoded and echoed by backend on nodes. */
+export async function getGraph(fromRole, toRole, progressMap, options = {}) {
+  /** Fetch graph; optional progressMap is encoded and echoed by backend on nodes. Accepts options.signal (AbortController). */
   const params = { fromRole, toRole };
   if (progressMap && typeof progressMap === "object") {
     try {
@@ -84,7 +84,11 @@ export async function getGraph(fromRole, toRole, progressMap) {
       // ignore encoding errors
     }
   }
-  const res = await fetch(buildUrl("/graph", params));
+  const res = await fetch(buildUrl("/graph", params), {
+    method: "GET",
+    signal: options.signal,
+    headers: { Accept: "application/json" },
+  });
   if (!res.ok) throw new Error("Failed to load graph");
   return res.json();
 }

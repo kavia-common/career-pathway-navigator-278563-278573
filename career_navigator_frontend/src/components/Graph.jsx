@@ -35,6 +35,11 @@ export default function Graph({
   // Internal state for graph data and UX
   const [graph, setGraph] = useState(null); // mapped graph { nodes, links }
   const [lastGoodGraph, setLastGoodGraph] = useState(null);
+  const lastGoodRef = useRef(null);
+  useEffect(() => {
+    lastGoodRef.current = lastGoodGraph;
+  }, [lastGoodGraph]);
+
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [name, setName] = useState("");
@@ -91,8 +96,11 @@ export default function Graph({
         if (Object.keys(seed).length) {
           setProgressByNode(seed);
         }
-      } catch {
-        // fall back to mock if mapping fails, but don't crash
+      } catch (e) {
+        try {
+          // eslint-disable-next-line no-console
+          console.warn("[Graph] Failed to map initialGraph; using mock.", e?.message || e);
+        } catch {}
         const mock = getMockGraph();
         setGraph(mock);
         setLastGoodGraph(mock);
@@ -101,41 +109,94 @@ export default function Graph({
   }, [initialGraph]);
 
   // Fetch graph from backend when ids change and no initialGraph is provided
+  const abortRef = useRef(null);
+  const reqIdRef = useRef(0);
   useEffect(() => {
-    let active = true;
+    if (!effectiveFromRoleId || !effectiveToRoleId || initialGraph) return;
+
+    // Cancel any in-flight request
+    try {
+      abortRef.current?.abort();
+    } catch {}
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const myId = (reqIdRef.current += 1);
+    setLoading(true);
+    setErr("");
+    try {
+      // eslint-disable-next-line no-console
+      console.debug("[Graph] fetch start", {
+        id: myId,
+        from: effectiveFromRoleId,
+        to: effectiveToRoleId,
+      });
+    } catch {}
+
     (async () => {
-      if (!effectiveFromRoleId || !effectiveToRoleId || initialGraph) return;
-      setLoading(true);
-      setErr("");
       try {
-        const payload = await getGraph(effectiveFromRoleId, effectiveToRoleId, progressMapForRequest);
-        if (!active) return;
+        const payload = await getGraph(
+          effectiveFromRoleId,
+          effectiveToRoleId,
+          progressMapForRequest,
+          { signal: controller.signal }
+        );
+        if (myId !== reqIdRef.current) return; // stale result
         const mapped = mapGraphPayload(payload);
         setGraph(mapped);
         setLastGoodGraph(mapped);
-      } catch (_e) {
-        // Keep last good graph if available; otherwise fallback to mock
-        if (!active) return;
+        try {
+          // eslint-disable-next-line no-console
+          console.debug("[Graph] fetch success", {
+            id: myId,
+            nodes: mapped?.nodes?.length || 0,
+            links: mapped?.links?.length || 0,
+          });
+        } catch {}
+      } catch (e) {
+        if (myId !== reqIdRef.current) return; // stale/aborted sequence
+        if (e?.name === "AbortError") {
+          // Silent on abort
+          try {
+            // eslint-disable-next-line no-console
+            console.debug("[Graph] request aborted", { id: myId });
+          } catch {}
+          return;
+        }
         setErr("Failed to load graph. Check API base or CORS; showing last known graph if available.");
-        if (!lastGoodGraph) {
+        if (!lastGoodRef.current) {
           const mock = getMockGraph();
           setGraph(mock);
           setLastGoodGraph(mock);
         }
+        try {
+          // eslint-disable-next-line no-console
+          console.warn("[Graph] fetch failed", { id: myId, error: e?.message || String(e) });
+        } catch {}
       } finally {
-        if (active) setLoading(false);
+        if (myId === reqIdRef.current) {
+          setLoading(false);
+        }
       }
     })();
+
     return () => {
-      active = false;
+      controller.abort();
     };
-  }, [effectiveFromRoleId, effectiveToRoleId, progressMapForRequest, initialGraph, lastGoodGraph]);
+    // Intentionally NOT depending on lastGoodGraph to avoid re-fetch loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveFromRoleId, effectiveToRoleId, progressMapForRequest, initialGraph]);
 
   // D3 rendering
   const wrapperRef = useRef(null);
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
   const simulationRef = useRef(null);
+  const initializedRef = useRef(false);
+  const gRootRef = useRef(null);
+  const linkGroupRef = useRef(null);
+  const nodeGroupRef = useRef(null);
+  const labelGroupRef = useRef(null);
 
   // Track dimensions for the force layout
   const [dims, setDims] = useState({ width: 800, height: 500 });
@@ -157,28 +218,15 @@ export default function Graph({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  // Draw/Update the graph whenever data or dimensions change
+  // Initialize SVG scaffolding only once
   useEffect(() => {
-    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.links)) return;
     const svgEl = svgRef.current;
-    if (!svgEl) return;
+    if (!svgEl || initializedRef.current) return;
 
-    // Cleanup any existing simulation
-    if (simulationRef.current) {
-      try {
-        simulationRef.current.stop();
-      } catch {
-        // ignore
-      }
-      simulationRef.current = null;
-    }
-
-    // Clear the SVG and set up basics
     const svg = d3.select(svgEl);
-    svg.selectAll("*").remove();
-    svg.attr("viewBox", `0 0 ${dims.width} ${dims.height}`).attr("width", "100%").attr("height", "100%");
+    svg.attr("width", "100%").attr("height", "100%").attr("viewBox", `0 0 ${dims.width} ${dims.height}`);
 
-    // Define arrow marker to match CSS marker-end url(#arrow)
+    // Ensure arrow marker exists
     const defs = svg.append("defs");
     defs
       .append("marker")
@@ -193,8 +241,12 @@ export default function Graph({
       .attr("d", "M 0 0 L 10 5 L 0 10 z")
       .attr("fill", "currentColor");
 
-    // Root group to zoom/pan
+    // Root and sub-groups
     const gRoot = svg.append("g").attr("class", "graph-content");
+    gRootRef.current = gRoot;
+    linkGroupRef.current = gRoot.append("g").attr("class", "links").node();
+    nodeGroupRef.current = gRoot.append("g").attr("class", "nodes").node();
+    labelGroupRef.current = gRoot.append("g").attr("class", "labels").node();
 
     // Zoom behavior
     const zoom = d3
@@ -206,105 +258,164 @@ export default function Graph({
     zoomRef.current = zoom;
     svg.call(zoom);
 
-    // Draw links
-    const link = gRoot
-      .append("g")
-      .attr("stroke-linecap", "round")
-      .selectAll("line")
-      .data(graph.links)
-      .join("line")
-      .attr("class", (d) => `link arrow${isGapLink(d) ? " gap" : ""}`)
-      .attr("stroke", (d) => (isGapLink(d) ? "#ef4444" : null))
-      .attr("stroke-width", 1.5);
+    initializedRef.current = true;
+  }, [dims.width, dims.height]);
 
-    // Draw nodes
-    const node = gRoot
-      .append("g")
-      .selectAll("circle")
-      .data(graph.nodes)
-      .join("circle")
-      .attr("class", (d) => `node ${d.type}${isGapNode(d) ? " gap" : ""}`)
-      .attr("r", (d) => (d.type === "role" ? 10 : 7))
-      .attr("stroke", "#fff")
-      .attr("stroke-width", 1)
-      .attr("tabIndex", 0)
-      .on("click", (_event, d) => onNodeClick(d))
-      .call(
-        d3
-          .drag()
-          .on("start", (event, d) => {
-            if (!event.active) simulationRef.current.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
-          })
-          .on("drag", (event, d) => {
-            d.fx = event.x;
-            d.fy = event.y;
-          })
-          .on("end", (event, d) => {
-            if (!event.active) simulationRef.current.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-          })
+  // Draw/Update the graph whenever data or dimensions change
+  useEffect(() => {
+    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.links)) return;
+    const svgEl = svgRef.current;
+    if (!svgEl || !initializedRef.current) return;
+
+    const svg = d3.select(svgEl);
+    svg.attr("viewBox", `0 0 ${dims.width} ${dims.height}`);
+
+    const linkKey = (d) => {
+      const s = typeof d.source === "object" ? d.source?.id : d.source;
+      const t = typeof d.target === "object" ? d.target?.id : d.target;
+      return `${s}→${t}`;
+    };
+
+    // Links join
+    const link = d3
+      .select(linkGroupRef.current)
+      .selectAll("line")
+      .data(graph.links, linkKey)
+      .join(
+        (enter) =>
+          enter
+            .append("line")
+            .attr("stroke-linecap", "round")
+            .attr("class", (d) => `link arrow${isGapLink(d) ? " gap" : ""}`)
+            .attr("stroke", (d) => (isGapLink(d) ? "#ef4444" : null))
+            .attr("stroke-width", 1.5),
+        (update) =>
+          update
+            .attr("class", (d) => `link arrow${isGapLink(d) ? " gap" : ""}`)
+            .attr("stroke", (d) => (isGapLink(d) ? "#ef4444" : null)),
+        (exit) => exit.remove()
       );
 
-    // Labels
-    const label = gRoot
-      .append("g")
-      .selectAll("text")
-      .data(graph.nodes)
-      .join("text")
-      .attr("font-size", 12)
-      .attr("class", "graph-label")
-      .text((d) => d.label)
-      .attr("pointer-events", "none");
+    // Nodes join
+    const nodeSel = d3
+      .select(nodeGroupRef.current)
+      .selectAll("circle")
+      .data(graph.nodes, (d) => d.id)
+      .join(
+        (enter) =>
+          enter
+            .append("circle")
+            .attr("class", (d) => `node ${d.type}${isGapNode(d) ? " gap" : ""}`)
+            .attr("r", (d) => (d.type === "role" ? 10 : 7))
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .attr("tabIndex", 0)
+            .on("click", (_event, d) => onNodeClick(d)),
+        (update) =>
+          update
+            .attr("class", (d) => `node ${d.type}${isGapNode(d) ? " gap" : ""}`)
+            .attr("r", (d) => (d.type === "role" ? 10 : 7)),
+        (exit) => exit.remove()
+      );
 
-    // Force simulation
-    const simulation = d3
-      .forceSimulation(graph.nodes)
+    // Labels join
+    const label = d3
+      .select(labelGroupRef.current)
+      .selectAll("text")
+      .data(graph.nodes, (d) => d.id)
+      .join(
+        (enter) =>
+          enter
+            .append("text")
+            .attr("font-size", 12)
+            .attr("class", "graph-label")
+            .text((d) => d.label)
+            .attr("pointer-events", "none"),
+        (update) => update.text((d) => d.label),
+        (exit) => exit.remove()
+      );
+
+    // Simulation setup or update
+    let sim = simulationRef.current;
+    if (!sim) {
+      sim = d3.forceSimulation([]);
+      simulationRef.current = sim;
+    }
+
+    sim
       .force(
         "link",
-        d3
-          .forceLink(graph.links)
-          .id((d) => d.id)
-          .distance((l) => {
-            const t = l.type || l.kind;
-            if (t === "requires" || t === "needs") return 70;
-            return 50;
-          })
+        (sim.force("link") ||
+          d3.forceLink().id((d) => d.id)).distance((l) => {
+          const t = l.type || l.kind;
+          if (t === "requires" || t === "needs") return 70;
+          return 50;
+        })
       )
       .force("charge", d3.forceManyBody().strength(-250))
       .force("center", d3.forceCenter(dims.width / 2, dims.height / 2))
-      .force(
-        "collision",
-        d3.forceCollide().radius((d) => (d.type === "role" ? 26 : 18)).strength(0.7)
-      )
-      .on("tick", () => {
-        link
-          .attr("x1", (d) => (d.source?.x ?? 0))
-          .attr("y1", (d) => (d.source?.y ?? 0))
-          .attr("x2", (d) => (d.target?.x ?? 0))
-          .attr("y2", (d) => (d.target?.y ?? 0));
+      .force("collision", d3.forceCollide().radius((d) => (d.type === "role" ? 26 : 18)).strength(0.7));
 
-        node.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
+    // Apply data to simulation
+    const linkForce = sim.force("link");
+    if (linkForce) {
+      linkForce.links(graph.links);
+    }
+    sim.nodes(graph.nodes);
 
-        label
-          .attr("x", (d) => (d.x ?? 0) + 12)
-          .attr("y", (d) => (d.y ?? 0) + 4);
+    // Tick updates
+    sim.on("tick", () => {
+      link
+        .attr("x1", (d) => (d.source?.x ?? 0))
+        .attr("y1", (d) => (d.source?.y ?? 0))
+        .attr("x2", (d) => (d.target?.x ?? 0))
+        .attr("y2", (d) => (d.target?.y ?? 0));
+
+      nodeSel.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
+
+      label.attr("x", (d) => (d.x ?? 0) + 12).attr("y", (d) => (d.y ?? 0) + 4);
+    });
+
+    // Reheat simulation for new data
+    sim.alpha(0.9).restart();
+
+    // Enable dragging with stable simulation reference
+    const drag = d3
+      .drag()
+      .on("start", (event, d) => {
+        if (!event.active) sim.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      })
+      .on("drag", (event, d) => {
+        d.fx = event.x;
+        d.fy = event.y;
+      })
+      .on("end", (event, d) => {
+        if (!event.active) sim.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
       });
+    nodeSel.call(drag);
 
-    simulationRef.current = simulation;
+    try {
+      // eslint-disable-next-line no-console
+      console.debug("[Graph] render draw", {
+        nodes: graph.nodes.length,
+        links: graph.links.length,
+        dims,
+      });
+    } catch {}
+  }, [graph, dims.width, dims.height]);
 
-    // Cleanup on change/unmount
+  // Stop simulation on unmount
+  useEffect(() => {
     return () => {
       try {
-        simulation.stop();
-      } catch {
-        // ignore
-      }
+        simulationRef.current?.stop();
+      } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, dims.width, dims.height]);
+  }, []);
 
   const onResetZoom = () => {
     const svg = d3.select(svgRef.current);
