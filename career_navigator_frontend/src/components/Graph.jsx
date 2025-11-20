@@ -303,7 +303,7 @@ export default function Graph({ fromRole, toRole, provideData }) {
                   y={r + 14}
                   textAnchor="middle"
                   fontSize="10"
-                  fill="currentColor"
+                  fill="var(--graph-label)"
                   aria-hidden="true"
                 >
                   {n.label}

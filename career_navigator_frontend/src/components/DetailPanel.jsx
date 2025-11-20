@@ -27,24 +27,9 @@ export default function DetailPanel({ open, onClose, loading, error, detail }) {
       aria-modal="true"
       aria-labelledby="detail-title"
       className="detail-panel"
-      style={{
-        position: 'absolute',
-        right: 16,
-        top: 16,
-        width: 360,
-        maxHeight: '80vh',
-        overflowY: 'auto',
-        background: 'var(--panel-bg, #111827)',
-        color: 'var(--panel-fg, #e5e7eb)',
-        border: '1px solid var(--border, rgba(255,255,255,0.1))',
-        borderRadius: 8,
-        boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-        padding: 16,
-        zIndex: 30,
-      }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <h3 id="detail-title" style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+      <div className="header">
+        <h3 id="detail-title">
           {title}
         </h3>
         <button className="btn ghost" aria-label="Close details" onClick={onClose}>
@@ -65,7 +50,7 @@ export default function DetailPanel({ open, onClose, loading, error, detail }) {
       ) : (
         <div>
           {detail.description ? (
-            <p style={{ marginTop: 4, marginBottom: 12, lineHeight: 1.4 }}>{detail.description}</p>
+            <p style={{ marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>{detail.description}</p>
           ) : null}
 
           {detail.type === 'role' && Array.isArray(detail.skills) && detail.skills.length > 0 ? (
@@ -75,7 +60,7 @@ export default function DetailPanel({ open, onClose, loading, error, detail }) {
                 {detail.skills.map((rs) => (
                   <li key={rs.skill.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span>{rs.skill.name}</span>
-                    <span title="Required level" style={{ color: 'var(--text-muted)' }}>
+                    <span title="Required level" className="muted" data-muted="true">
                       L{rs.required_level}
                     </span>
                   </li>
@@ -88,7 +73,7 @@ export default function DetailPanel({ open, onClose, loading, error, detail }) {
             <>
               {detail.category ? (
                 <div style={{ marginBottom: 8 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Category:</span> {detail.category}
+                  <span className="muted" data-muted="true">Category:</span> {detail.category}
                 </div>
               ) : null}
               {Array.isArray(detail.roles) && detail.roles.length > 0 ? (
@@ -98,7 +83,7 @@ export default function DetailPanel({ open, onClose, loading, error, detail }) {
                     {detail.roles.map((rr) => (
                       <li key={rr.role.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <span>{rr.role.name}</span>
-                        <span title="Required level" style={{ color: 'var(--text-muted)' }}>
+                        <span title="Required level" className="muted" data-muted="true">
                           L{rr.required_level}
                         </span>
                       </li>

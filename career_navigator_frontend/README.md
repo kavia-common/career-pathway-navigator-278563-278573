@@ -98,6 +98,14 @@ Security caveats:
   - Ensure `.env` contains `REACT_APP_AUTH_USER` and `REACT_APP_AUTH_PASS`, and restart `npm start` after changes.
   - Clear browser `localStorage` if needed.
 
+### Theme and Contrast
+
+- A theme toggle is available in the header to switch between light and dark modes.
+- Light mode contrast fixes:
+  - The Detail Panel and graph overlays now use explicit light-mode backgrounds and text colors.
+  - Graph labels are rendered using a dedicated `--graph-label` color to avoid low-contrast inheritance.
+- If any text looks faint, ensure your browser is not applying forced colors/high-contrast overrides and that `data-theme="light"` is present on `<html>` (set via the toggle).
+
 ## Customization
 
 ### Colors
