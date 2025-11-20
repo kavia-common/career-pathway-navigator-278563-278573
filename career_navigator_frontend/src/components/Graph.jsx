@@ -138,13 +138,14 @@ export default function Graph({ fromRole, toRole, provideData }) {
       const s = nodePos.get(typeof l.source === 'object' ? l.source.id : l.source);
       const t = nodePos.get(typeof l.target === 'object' ? l.target.id : l.target);
       return {
-        key: `${l.source}-${l.target}-${idx}`,
+        key: `${typeof l.source === 'object' ? l.source.id : l.source}-${typeof l.target === 'object' ? l.target.id : l.target}-${idx}`,
         x1: s ? s.x : 0,
         y1: s ? s.y : 0,
         x2: t ? t.x : 0,
         y2: t ? t.y : 0,
         kind: l.kind || 'rel',
         color: l.color || (l.is_gap ? '#ef4444' : undefined),
+        is_gap: l.is_gap === true,
       };
     });
   }, [data.links, nodePos]);
@@ -202,7 +203,7 @@ export default function Graph({ fromRole, toRole, provideData }) {
               x2={l.x2}
               y2={l.y2}
               strokeWidth={1.5}
-              stroke={l.color || (l.kind === 'requires' && '#ef4444' && l.color === undefined && l.is_gap ? '#ef4444' : (l.is_gap ? '#ef4444' : undefined))}
+              stroke={l.color || (l.is_gap ? '#ef4444' : undefined)}
               aria-hidden="true"
             />
           ))}
