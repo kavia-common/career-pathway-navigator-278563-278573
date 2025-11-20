@@ -4,10 +4,10 @@
  * Resolution priority:
  * 1) window.__ENV__.REACT_APP_API_BASE (set by env-bootstrap.js or external script)
  * 2) process.env.REACT_APP_API_BASE (CRA replaces at build time; guarded)
- * 3) Preview-safe default (backend preview on 3001)
+ * 3) Preview-safe default (backend preview on 3001 over HTTPS)
  */
 
-const DEFAULT_BASE = 'https://vscode-internal-31939-beta.beta01.cloud.kavia.ai:3001';
+const DEFAULT_BASE = 'https://vscode-internal-11652-beta.beta01.cloud.kavia.ai:3001';
 
 /**
  * Resolve the API base URL from safe sources.

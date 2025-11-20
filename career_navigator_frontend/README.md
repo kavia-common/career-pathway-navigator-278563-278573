@@ -33,7 +33,9 @@ The frontend expects a FastAPI backend running in previews at port 3001. The bas
 
 - To override locally, create `.env` in `career_navigator_frontend` (see `.env.example`):
 ```
-REACT_APP_API_BASE=http://localhost:3001
+REACT_APP_API_BASE=https://vscode-internal-11652-beta.beta01.cloud.kavia.ai:3001
+# For local dev you can use:
+# REACT_APP_API_BASE=http://localhost:3001
 ```
 - Ensure the backend starts with SQLite seeding on first run and CORS allows `http://localhost:3000`.
 - If roles/skills do not render:

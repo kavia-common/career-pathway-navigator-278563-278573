@@ -19,7 +19,8 @@
     (typeof window !== 'undefined' &&
       window.__ENV__ &&
       window.__ENV__.REACT_APP_API_BASE) ||
-    'https://vscode-internal-31939-beta.beta01.cloud.kavia.ai:3001';
+    // Preview-safe HTTPS default
+    'https://vscode-internal-11652-beta.beta01.cloud.kavia.ai:3001';
 
   // Populate window.__ENV__ with normalized values
   window.__ENV__.REACT_APP_API_BASE = API_BASE;
