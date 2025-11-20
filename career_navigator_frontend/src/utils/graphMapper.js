@@ -19,6 +19,8 @@ export function mapGraphPayload(payload) {
         id: String(n.id),
         label: sanitizeLabel(n.label ?? n.id),
         type: n.type || 'skill',
+        is_gap: typeof n.is_gap === 'boolean' ? n.is_gap : undefined,
+        color: typeof n.color === 'string' ? n.color : undefined,
         gap: typeof n.gap === 'number' ? n.gap : 0,
       }))
     : [];
@@ -34,6 +36,8 @@ export function mapGraphPayload(payload) {
     kind: e.type || e.kind || 'rel',
     level: typeof e.level === 'number' ? e.level : undefined,
     from: e.from || e.from_,
+    is_gap: typeof e.is_gap === 'boolean' ? e.is_gap : undefined,
+    color: typeof e.color === 'string' ? e.color : undefined,
   }));
 
   return {

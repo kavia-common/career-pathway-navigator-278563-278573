@@ -46,9 +46,12 @@ export default function Graph({ fromRole, toRole, provideData }) {
   }, [fromRole, toRole]);
 
   const colorForNode = (n) => {
-    if (n.type === 'role') return 'node role';
-    if (n.type === 'gap' || n.gap > 1.5) return 'node gap';
-    return 'node skill';
+    // Return inline style object with fill color if provided, else use classes
+    if (n.color) return { style: { fill: n.color } };
+    if (n.is_gap) return { style: { fill: '#ef4444' } };
+    // fallback by type to CSS classes
+    if (n.type === 'role') return { className: 'node role' };
+    return { className: 'node skill' };
   };
 
   // Initialize zoom behavior
@@ -135,6 +138,7 @@ export default function Graph({ fromRole, toRole, provideData }) {
         x2: t ? t.x : 0,
         y2: t ? t.y : 0,
         kind: l.kind || 'rel',
+        color: l.color || (l.is_gap ? '#ef4444' : undefined),
       };
     });
   }, [data.links, nodePos]);
@@ -192,29 +196,34 @@ export default function Graph({ fromRole, toRole, provideData }) {
               x2={l.x2}
               y2={l.y2}
               strokeWidth={1.5}
+              stroke={l.color || undefined}
               aria-hidden="true"
             />
           ))}
-          {nodesWithPos.map((n) => (
-            <g key={n.id} transform={`translate(${n.x || 0}, ${n.y || 0})`}>
-              <circle
-                r={14 + Math.min(10, Math.max(0, n.gap * 3))}
-                className={colorForNode(n)}
-                tabIndex={0}
-                aria-label={`${n.type} node: ${n.label}`}
-              />
-              <text
-                x={0}
-                y={28 + Math.min(10, Math.max(0, n.gap * 3))}
-                textAnchor="middle"
-                fontSize="10"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                {n.label}
-              </text>
-            </g>
-          ))}
+          {nodesWithPos.map((n) => {
+            const colorProps = colorForNode(n);
+            return (
+              <g key={n.id} transform={`translate(${n.x || 0}, ${n.y || 0})`}>
+                <circle
+                  r={14 + Math.min(10, Math.max(0, n.gap * 3))}
+                  {...(colorProps.className ? { className: colorProps.className } : {})}
+                  {...(colorProps.style ? { style: colorProps.style } : {})}
+                  tabIndex={0}
+                  aria-label={`${n.type} node: ${n.label}`}
+                />
+                <text
+                  x={0}
+                  y={28 + Math.min(10, Math.max(0, n.gap * 3))}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  {n.label}
+                </text>
+              </g>
+            );
+          })}
         </g>
       </svg>
       {error ? (
