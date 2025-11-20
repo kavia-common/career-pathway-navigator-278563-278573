@@ -1,331 +1,220 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import * as d3 from 'd3';
-import { apiGet, fetchRoleById, fetchRoleByName, fetchSkillById, fetchSkillByName } from '../api/client';
-import { mapGraphPayload, getMockGraph } from '../utils/graphMapper';
-import DetailPanel from './DetailPanel';
-
 /**
-// PUBLIC_INTERFACE
+ * Graph visualization component with progress editing and Save Roadmap button.
+ * This is a lightweight placeholder integrating API helpers and Legend.
  */
-export default function Graph({ fromRole, toRole, provideData }) {
-  /**
-   * Render force-directed graph using React-managed SVG elements.
-   * Uses d3-force for layout and d3-zoom bound to inner <g>.
-   */
-  const [data, setData] = useState({ nodes: [], links: [], counts: { nodes: 0, links: 0 } });
-  const [error, setError] = useState('');
-  const svgRef = useRef(null);
-  const gRef = useRef(null);
-  const zoomRef = useRef(null);
-  const simRef = useRef(null);
+import React, { useEffect, useMemo, useState } from "react";
+import { getGraph, createRoadmap } from "../api/client";
+import Legend from "./Legend";
 
-  // Details state
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState('');
-  const [detail, setDetail] = useState(null);
+// Simple node renderer as list for MVP; assumes upstream D3 renderer can be integrated.
+export default function Graph({
+  fromRoleId,
+  toRoleId,
+  userId = "demo-user",
+  initialGraph, // optional: when loading a saved roadmap
+}) {
+  const [graph, setGraph] = useState(initialGraph || null);
+  const [progressByNode, setProgressByNode] = useState({});
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
 
-  const fetchData = async () => {
-    setError('');
-    if (provideData && provideData.nodes) {
-      setData(mapGraphPayload(provideData));
-      return;
-    }
-    const res = await apiGet('/graph', { fromRole: String(fromRole || ''), toRole: String(toRole || '') });
-    if (res.ok && res.data) {
-      const mapped = mapGraphPayload(res.data);
-      try {
-        // eslint-disable-next-line no-console
-        console.debug('[Graph] /graph meta', res.data.meta || {});
-        // eslint-disable-next-line no-console
-        console.debug('[Graph] counts', mapped.counts);
-      } catch (_) {}
-      if (mapped.counts.nodes === 0) {
-        // fall back to mock for empty
-        setData(getMockGraph());
-      } else {
-        setData(mapped);
-      }
-    } else {
-      // fallback to mock when API not available
-      setData(getMockGraph());
-      if (res.error) setError('Using mock data. Backend not reachable. Check REACT_APP_API_BASE and CORS.');
-    }
-  };
+  const progressOptions = [
+    { value: "not_started", label: "Not Started", color: "#9CA3AF" },
+    { value: "in_progress", label: "In Progress", color: "#F59E0B" },
+    { value: "completed", label: "Completed", color: "#10B981" },
+  ];
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromRole, toRole]);
-
-  const colorForNode = (n) => {
-    // Return inline style object with fill color if provided, else use classes
-    if (n.color) return { style: { fill: n.color } };
-    if (n.is_gap) return { style: { fill: '#ef4444' } };
-    // fallback by type to CSS classes
-    if (n.type === 'role') return { className: 'node role' };
-    return { className: 'node skill' };
-  };
-
-  // Initialize zoom behavior
-  useEffect(() => {
-    const svg = d3.select(svgRef.current);
-    const g = d3.select(gRef.current);
-    const zoomBehavior = d3.zoom().scaleExtent([0.25, 4]).on('zoom', (event) => {
-      // Only mutate transform on <g> in zoom handler to keep React in control elsewhere
-      g.attr('transform', event.transform);
+  const progressMapForRequest = useMemo(() => {
+    const map = {};
+    Object.entries(progressByNode).forEach(([id, v]) => {
+      map[id] = { progress: v.progress, percent: v.percent ?? undefined };
     });
-    svg.call(zoomBehavior);
-    zoomRef.current = zoomBehavior;
-    return () => {
-      svg.on('.zoom', null);
-    };
-  }, []);
-
-  const resetZoom = () => {
-    const svg = d3.select(svgRef.current);
-    if (zoomRef.current) {
-      svg.transition().duration(300).call(zoomRef.current.transform, d3.zoomIdentity);
-    }
-  };
-
-  // Setup and run force simulation when data changes
-  useEffect(() => {
-    if (!data.nodes.length) return;
-
-    const nodes = data.nodes.map((d) => ({ ...d }));
-    const links = data.links.map((l) => ({ ...l }));
-
-    const sim = d3
-      .forceSimulation(nodes)
-      .force(
-        'link',
-        d3
-          .forceLink(links)
-          .id((d) => d.id)
-          .distance((l) => (l.kind === 'needs' ? 120 : 80))
-          .strength(0.2),
-      )
-      .force('charge', d3.forceManyBody().strength(-150))
-      .force('center', d3.forceCenter(0, 0))
-      .force('collide', d3.forceCollide().radius(() => 32).strength(0.7))
-      .alphaDecay(0.05);
-
-    simRef.current = { sim, nodes, links };
-
-    const ticked = () => {
-      // Force tick updates - we store positions on state via refs; React reads via useMemo below
-      setPositions({
-        nodes: nodes.map((n) => ({ id: n.id, x: n.x || 0, y: n.y || 0 })),
-        links: links.map((l) => ({
-          source: typeof l.source === 'object' ? l.source.id : l.source,
-          target: typeof l.target === 'object' ? l.target.id : l.target,
-        })),
-      });
-    };
-
-    sim.on('tick', ticked);
-
-    return () => {
-      sim.stop();
-      sim.on('tick', null);
-    };
-  }, [data]);
-
-  const [positions, setPositions] = useState({ nodes: [], links: [] });
-
-  const nodePos = useMemo(() => {
-    const map = new Map();
-    for (const n of positions.nodes) map.set(n.id, n);
     return map;
-  }, [positions.nodes]);
+  }, [progressByNode]);
 
-  const linkLines = useMemo(() => {
-    return data.links.map((l, idx) => {
-      const s = nodePos.get(typeof l.source === 'object' ? l.source.id : l.source);
-      const t = nodePos.get(typeof l.target === 'object' ? l.target.id : l.target);
-      return {
-        key: `${typeof l.source === 'object' ? l.source.id : l.source}-${typeof l.target === 'object' ? l.target.id : l.target}-${idx}`,
-        x1: s ? s.x : 0,
-        y1: s ? s.y : 0,
-        x2: t ? t.x : 0,
-        y2: t ? t.y : 0,
-        kind: l.kind || 'rel',
-        color: l.color || (l.is_gap ? '#ef4444' : undefined),
-        is_gap: l.is_gap === true,
-      };
-    });
-  }, [data.links, nodePos]);
-
-  const nodesWithPos = useMemo(() => {
-    return data.nodes.map((n) => {
-      const p = nodePos.get(n.id) || { x: 0, y: 0 };
-      return { ...n, ...p };
-    });
-  }, [data.nodes, nodePos]);
-
-  // Handle node click -> fetch detail
-  const handleNodeClick = async (n) => {
-    try {
-      setDetailError('');
-      setDetailOpen(true);
-      setDetailLoading(true);
-      setDetail(null);
-
-      if (n.type === 'role') {
-        const roleId =
-          typeof n.entity_id === 'number'
-            ? n.entity_id
-            : String(n.id || '').startsWith('role:')
-            ? Number(String(n.id).split(':').slice(-1)[0])
-            : undefined;
-        let res = roleId ? await fetchRoleById(roleId) : await fetchRoleByName(String(n.label || '').trim());
-        if (!res.ok) {
-          // try alternative method if available
-          if (roleId) {
-            res = await fetchRoleByName(String(n.label || '').trim());
-          } else if (String(n.id || '').startsWith('role:')) {
-            const altId = Number(String(n.id).split(':').slice(-1)[0]);
-            if (altId) res = await fetchRoleById(altId);
-          }
-        }
-        if (res.ok && res.data) {
-          setDetail({ type: 'role', id: res.data.id, name: res.data.name, description: res.data.description, skills: res.data.skills || [] });
-        } else {
-          setDetailError(res.error || 'Failed to fetch role details');
-        }
-      } else if (n.type === 'skill') {
-        const skillId = typeof n.entity_id === 'number' ? n.entity_id : undefined;
-        let res = skillId ? await fetchSkillById(skillId) : await fetchSkillByName(String(n.label || '').trim());
-        if (!res.ok && !skillId && String(n.id || '').startsWith('skill:')) {
-          const name = String(n.id).split(':').slice(1).join(':'); // preserve names with colons
-          res = await fetchSkillByName(name);
-        }
-        if (res.ok && res.data) {
-          setDetail({
-            type: 'skill',
-            id: res.data.id,
-            name: res.data.name,
-            description: res.data.description,
-            category: res.data.category,
-            roles: res.data.roles || [],
-          });
-        } else {
-          setDetailError(res.error || 'Failed to fetch skill details');
-        }
-      } else {
-        setDetailError('Unsupported node type');
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      if (!fromRoleId || !toRoleId || initialGraph) return;
+      try {
+        const g = await getGraph(fromRoleId, toRoleId, progressMapForRequest);
+        if (mounted) setGraph(g);
+      } catch {
+        setErr("Failed to load graph");
       }
-    } catch (e) {
-      setDetailError('Unexpected error while loading details');
     }
-    setDetailLoading(false);
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [fromRoleId, toRoleId, progressMapForRequest, initialGraph]);
+
+  useEffect(() => {
+    // If initialGraph provided by loader, seed local progress state
+    if (initialGraph && initialGraph.nodes) {
+      const seed = {};
+      initialGraph.nodes.forEach((n) => {
+        if (n.type === "skill") {
+          const id = n.id;
+          const pr = n.progress || null;
+          const pct = Number.isInteger(n.percent_complete) ? n.percent_complete : undefined;
+          if (pr) seed[id] = { progress: pr, percent: pct };
+        }
+      });
+      setProgressByNode(seed);
+      setGraph(initialGraph);
+    }
+  }, [initialGraph]);
+
+  const updateProgress = (nodeId, progressValue) => {
+    setProgressByNode((prev) => ({
+      ...prev,
+      [nodeId]: { ...(prev[nodeId] || {}), progress: progressValue },
+    }));
   };
 
-  const handleNodeKeyDown = (n, e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleNodeClick(n);
+  const updatePercent = (nodeId, percent) => {
+    const val = Math.max(0, Math.min(100, parseInt(percent || "0", 10) || 0));
+    setProgressByNode((prev) => ({
+      ...prev,
+      [nodeId]: { ...(prev[nodeId] || {}), percent: val },
+    }));
+  };
+
+  const saveRoadmap = async () => {
+    if (!graph) return;
+    try {
+      setSaving(true);
+      setErr("");
+      const payload = {
+        name: name?.trim() || `Roadmap ${fromRoleId}→${toRoleId}`,
+        user_identifier: userId,
+        from_role_id: Number(fromRoleId),
+        to_role_id: Number(toRoleId),
+        // include progress back into nodes
+        graph_payload: {
+          ...graph,
+          nodes: (graph.nodes || []).map((n) => {
+            if (n.type !== "skill") return n;
+            const meta = progressByNode[n.id];
+            if (!meta) return n;
+            return {
+              ...n,
+              progress: meta.progress,
+              percent_complete: Number.isInteger(meta.percent) ? meta.percent : undefined,
+            };
+          }),
+        },
+        notes: null,
+      };
+      const res = await createRoadmap(payload);
+      // update local graph with any normalized payload
+      setGraph(res.graph_payload);
+    } catch (e) {
+      setErr("Failed to save roadmap");
+    } finally {
+      setSaving(false);
     }
   };
+
+  const skillNodes = (graph?.nodes || []).filter((n) => n.type === "skill");
 
   return (
-    <div className="graph-wrapper" role="region" aria-label="Career roadmap graph" style={{ position: 'relative' }}>
-      <div className="graph-toolbar" aria-live="polite">
-        <span>
-          Nodes: <strong>{data.counts.nodes}</strong>
-        </span>
-        <span>
-          Edges: <strong>{data.counts.links}</strong>
-        </span>
-        <button className="btn ghost" onClick={resetZoom} aria-label="Reset zoom">
-          Reset Zoom
-        </button>
-      </div>
-      <div className="graph-legend" aria-hidden="false">
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--brand-primary)', display: 'inline-block' }} />
-          <span>Role</span>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--brand-success)', display: 'inline-block', marginLeft: 8 }} />
-          <span>Skill</span>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f43f5e', display: 'inline-block', marginLeft: 8 }} />
-          <span>Gap</span>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16 }}>
+      <div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            aria-label="Roadmap name"
+            placeholder="Roadmap name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={{
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              padding: "8px 10px",
+              flex: 1,
+            }}
+          />
+          <button
+            type="button"
+            onClick={saveRoadmap}
+            disabled={saving || !graph}
+            style={{
+              background: "#3b82f6",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              padding: "8px 12px",
+              cursor: "pointer",
+              opacity: saving ? 0.7 : 1,
+            }}
+          >
+            {saving ? "Saving..." : "Save Roadmap"}
+          </button>
+        </div>
+        {err && (
+          <div role="alert" style={{ color: "#b91c1c", marginBottom: 8 }}>
+            {err}
+          </div>
+        )}
+        <div>
+          <h3>Skills</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 120px", gap: 8 }}>
+            <div style={{ fontWeight: 600 }}>Skill</div>
+            <div style={{ fontWeight: 600 }}>Progress</div>
+            <div style={{ fontWeight: 600 }}>% Complete</div>
+            {skillNodes.map((n) => {
+              const meta = progressByNode[n.id] || {};
+              return (
+                <React.Fragment key={n.id}>
+                  <div>{n.label}</div>
+                  <div>
+                    <select
+                      aria-label={`Progress for ${n.label}`}
+                      value={meta.progress || ""}
+                      onChange={(e) => updateProgress(n.id, e.target.value)}
+                      style={{
+                        border: "1px solid #d1d5db",
+                        borderRadius: 6,
+                        padding: "6px 8px",
+                        width: "100%",
+                      }}
+                    >
+                      <option value="">—</option>
+                      {progressOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <input
+                      type="number"
+                      aria-label={`Percent complete for ${n.label}`}
+                      value={meta.percent ?? ""}
+                      placeholder="0-100"
+                      min={0}
+                      max={100}
+                      onChange={(e) => updatePercent(n.id, e.target.value)}
+                      style={{
+                        border: "1px solid #d1d5db",
+                        borderRadius: 6,
+                        padding: "6px 8px",
+                        width: "100%",
+                      }}
+                    />
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
         </div>
       </div>
-      <svg
-        ref={svgRef}
-        className="graph"
-        role="img"
-        aria-label="Interactive career roadmap graph canvas"
-        viewBox={[-400, -300, 800, 600].join(' ')}
-        tabIndex={0}
-      >
-        <defs>
-          <marker id="arrow" viewBox="0 -5 10 10" refX="12" refY="0" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M0,-5L10,0L0,5" fill="var(--text-muted)" />
-          </marker>
-        </defs>
-        <g ref={gRef}>
-          {linkLines.map((l) => (
-            <line
-              key={l.key}
-              className={`link ${l.kind === 'needs' ? 'arrow' : ''}`}
-              x1={l.x1}
-              y1={l.y1}
-              x2={l.x2}
-              y2={l.y2}
-              strokeWidth={1.5}
-              stroke={l.color || (l.is_gap ? '#ef4444' : undefined)}
-              aria-hidden="true"
-            />
-          ))}
-          {nodesWithPos.map((n) => {
-            const colorProps = colorForNode(n);
-            const r = 14 + Math.min(10, Math.max(0, (n.gap || 0) * 3));
-            return (
-              <g
-                key={n.id}
-                transform={`translate(${n.x || 0}, ${n.y || 0})`}
-                onClick={() => handleNodeClick(n)}
-                onKeyDown={(e) => handleNodeKeyDown(n, e)}
-                role="button"
-                tabIndex={0}
-                aria-label={`${n.type} node: ${n.label}. ${n.is_gap ? 'Gap' : ''}`}
-                style={{ cursor: 'pointer' }}
-              >
-                <circle
-                  r={r}
-                  {...(colorProps.className ? { className: colorProps.className } : {})}
-                  {...(colorProps.style ? { style: colorProps.style } : {})}
-                />
-                <text
-                  x={0}
-                  y={r + 14}
-                  textAnchor="middle"
-                  fontSize="10"
-                  fill="var(--graph-label)"
-                  aria-hidden="true"
-                >
-                  {n.label}
-                </text>
-              </g>
-            );
-          })}
-        </g>
-      </svg>
-      {error ? (
-        <div role="status" style={{ padding: 8, color: '#fbbf24' }}>
-          {error}
-        </div>
-      ) : null}
-
-      <DetailPanel
-        open={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        loading={detailLoading}
-        error={detailError}
-        detail={detail}
-      />
+      <div>
+        <Legend />
+      </div>
     </div>
   );
 }
