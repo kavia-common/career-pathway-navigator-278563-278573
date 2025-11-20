@@ -15,6 +15,7 @@ export default function RoleSelector() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
+  // Load roles once on mount; internal state updates are handled explicitly
   useEffect(() => {
     let active = true;
     (async () => {
@@ -28,8 +29,9 @@ export default function RoleSelector() {
         // preselect common seeded roles if present
         const ca = next.find((x) => x.name === 'Chief Architect');
         const cto = next.find((x) => x.name === 'CTO');
-        if (!currentRole && ca) setCurrentRole(ca.id);
-        if (!targetRole && cto) setTargetRole(cto.id);
+        // Update defaults without relying on effect deps
+        if (ca) setCurrentRole((prev) => prev || ca.id);
+        if (cto) setTargetRole((prev) => prev || cto.id);
         if (next.length === 0) {
           setError('No roles available. Verify backend is running and database seeded.');
         }
@@ -42,7 +44,7 @@ export default function RoleSelector() {
     return () => {
       active = false;
     };
-  }, []); 
+  }, []);
 
   const onSubmit = (e) => {
     e.preventDefault();
