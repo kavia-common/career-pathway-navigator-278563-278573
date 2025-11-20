@@ -119,6 +119,19 @@ export default function ProgressPanel() {
       setNote(`Failed to update progress: ${errDetail}`);
       // revert if needed
       setItems((prev) => prev.map((it) => (it.skillId === skillId ? { ...it, status: 'not_started' } : it)));
+    } else {
+      // Broadcast normalized status so the Graph can adjust colors/gaps immediately
+      const normalizedStatus =
+        status === 'complete' ? 'completed' : status === 'working_on' ? 'in_progress' : 'not_started';
+      try {
+        window.dispatchEvent(
+          new CustomEvent('progress:update', {
+            detail: { skillId: String(skillId), status, normalizedStatus },
+          }),
+        );
+      } catch {
+        // ignore event failures
+      }
     }
   };
 

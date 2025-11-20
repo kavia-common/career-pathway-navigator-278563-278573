@@ -5,25 +5,76 @@ import { mapGraphPayload, getMockGraph } from "../utils/graphMapper";
 import Legend from "./Legend";
 import DetailPanel from "./DetailPanel";
 
-/**
- * Helpers to determine gap styling.
- */
-function isGapNode(n) {
-  return !!(n?.is_gap || n?.color === "#ef4444" || (typeof n?.gap === "number" && n.gap > 0));
+const COLORS = {
+  blue: "#3B82F6",
+  amber: "#F59E0B",
+  gray: "#9CA3AF",
+  red: "#ef4444",
+  role: "#3B82F6",
+  skill: "#06B6D4",
+};
+
+function normalizeProgress(status) {
+  if (!status) return null;
+  const s = String(status).toLowerCase();
+  if (s === "complete" || s === "completed") return "completed";
+  if (s === "working_on" || s === "in_progress") return "in_progress";
+  if (s === "not_started") return "not_started";
+  return null;
 }
-function isGapLink(l) {
-  return !!(l?.is_gap || l?.color === "#ef4444");
+
+function nodeProgress(n, progressByNode) {
+  const meta = progressByNode[String(n?.id)];
+  const raw = meta?.progress || n?.progress || null;
+  return normalizeProgress(raw);
+}
+
+function isSkill(n) {
+  return (n?.type || "").toLowerCase() === "skill";
+}
+
+function effectiveNodeIsGap(n, progressByNode) {
+  const p = nodeProgress(n, progressByNode);
+  if (p === "completed") return false;
+  return !!(n?.is_gap || n?.color === COLORS.red || (typeof n?.gap === "number" && n.gap > 0));
+}
+
+function nodeFillColor(n, progressByNode) {
+  if ((n?.type || "").toLowerCase() === "role") return COLORS.role;
+  const p = nodeProgress(n, progressByNode);
+  if (p === "completed") return COLORS.blue;
+  if (p === "in_progress") return COLORS.amber;
+  if (p === "not_started") return COLORS.gray;
+  if (effectiveNodeIsGap(n, progressByNode)) return COLORS.red;
+  return COLORS.skill;
+}
+
+function effectiveLinkIsGap(l, progressByNode) {
+  const gapFlag = !!(l?.is_gap || l?.color === COLORS.red);
+  if (!gapFlag) return false;
+  const sNode = typeof l.source === "object" ? l.source : null;
+  const tNode = typeof l.target === "object" ? l.target : null;
+  const endpoints = [sNode, tNode].filter(Boolean);
+  for (const n of endpoints) {
+    if (isSkill(n)) {
+      const p = nodeProgress(n, progressByNode);
+      if (p === "completed") return false;
+    }
+  }
+  return true;
 }
 
 // PUBLIC_INTERFACE
 export default function Graph({
-  /** 
+  /**
    * Interactive D3 force-directed graph for roadmap visualization.
    * Props:
    * - fromRole, toRole: string/number IDs from router (preferred)
    * - fromRoleId, toRoleId: optional legacy numeric IDs for compatibility
    * - userId: identifier to scope saved roadmaps (demo only)
    * - initialGraph: optional preloaded graph (e.g., from saved roadmap)
+   * - previewMode: optional boolean to hide save actions (used for in-place previews)
+   * - containerHeight: optional number (px) to override default height
    */
   fromRole,
   toRole,
@@ -31,6 +82,8 @@ export default function Graph({
   toRoleId,
   userId = "demo-user",
   initialGraph,
+  previewMode = false,
+  containerHeight,
 }) {
   // Internal state for graph data and UX
   const [graph, setGraph] = useState(null); // normalized graph { nodes, links(sourceId/targetId), meta? }
@@ -90,7 +143,7 @@ export default function Graph({
             const id = String(n.id);
             const pr = n.progress || null;
             const pct = Number.isInteger(n.percent_complete) ? n.percent_complete : undefined;
-            if (pr) seed[id] = { progress: pr, percent: pct };
+            if (pr) seed[id] = { progress: normalizeProgress(pr), percent: pct };
           }
         });
         if (Object.keys(seed).length) {
@@ -107,6 +160,40 @@ export default function Graph({
       }
     }
   }, [initialGraph]);
+
+  // React to global progress updates so graph colors/legend change live
+  useEffect(() => {
+    function onProgressUpdate(e) {
+      try {
+        const detail = (e && e.detail) || {};
+        const skillId = detail?.skillId != null ? String(detail.skillId) : null;
+        const normalized = detail?.normalizedStatus || normalizeProgress(detail?.status);
+        if (!skillId || !normalized) return;
+        if (!graph || !Array.isArray(graph.nodes)) return;
+
+        const updates = {};
+        for (const n of graph.nodes) {
+          const idStr = String(n.id);
+          const eid =
+            typeof n.entity_id === "number"
+              ? String(n.entity_id)
+              : n.entity_id != null
+              ? String(n.entity_id)
+              : null;
+          if ((eid && eid === skillId) || idStr === skillId || idStr === `skill:${skillId}`) {
+            updates[idStr] = { progress: normalized };
+          }
+        }
+        if (Object.keys(updates).length) {
+          setProgressByNode((prev) => ({ ...prev, ...updates }));
+        }
+      } catch {
+        // ignore
+      }
+    }
+    window.addEventListener("progress:update", onProgressUpdate);
+    return () => window.removeEventListener("progress:update", onProgressUpdate);
+  }, [graph]);
 
   // Fetch graph from backend when ids change and no initialGraph is provided
   const abortRef = useRef(null);
@@ -135,12 +222,9 @@ export default function Graph({
 
     (async () => {
       try {
-        const payload = await getGraph(
-          effectiveFromRoleId,
-          effectiveToRoleId,
-          progressMapForRequest,
-          { signal: controller.signal }
-        );
+        const payload = await getGraph(effectiveFromRoleId, effectiveToRoleId, progressMapForRequest, {
+          signal: controller.signal,
+        });
         if (myId !== reqIdRef.current) return; // stale result
         const mapped = mapGraphPayload(payload);
         setGraph(mapped);
@@ -156,7 +240,6 @@ export default function Graph({
       } catch (e) {
         if (myId !== reqIdRef.current) return; // stale/aborted sequence
         if (e?.name === "AbortError") {
-          // Silent on abort
           try {
             // eslint-disable-next-line no-console
             console.debug("[Graph] request aborted", { id: myId });
@@ -183,11 +266,10 @@ export default function Graph({
     return () => {
       controller.abort();
     };
-    // Intentionally NOT depending on lastGoodGraph to avoid re-fetch loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveFromRoleId, effectiveToRoleId, progressMapForRequest, initialGraph]);
 
-  // D3 rendering
+  // D3 scaffolding
   const wrapperRef = useRef(null);
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
@@ -323,7 +405,31 @@ export default function Graph({
     return { nodes, simLinks, meta };
   }, [graph, effectiveFromRoleId, effectiveToRoleId]);
 
-  // Draw/Update the graph whenever prepared data or dimensions change
+  // Compute legend counts live
+  const legendCounts = useMemo(() => {
+    const nodes = preparedData.nodes || [];
+    const links = preparedData.simLinks || [];
+    let not_started = 0;
+    let in_progress = 0;
+    let completed = 0;
+    let gapNodes = 0;
+    let gapLinks = 0;
+    for (const n of nodes) {
+      if (isSkill(n)) {
+        const p = nodeProgress(n, progressByNode);
+        if (p === "not_started") not_started += 1;
+        else if (p === "in_progress") in_progress += 1;
+        else if (p === "completed") completed += 1;
+      }
+      if (effectiveNodeIsGap(n, progressByNode)) gapNodes += 1;
+    }
+    for (const l of links) {
+      if (effectiveLinkIsGap(l, progressByNode)) gapLinks += 1;
+    }
+    return { not_started, in_progress, completed, gaps: gapNodes + gapLinks };
+  }, [preparedData, progressByNode]);
+
+  // Draw/Update the graph whenever prepared data, dimensions, or progress changes
   useEffect(() => {
     const { nodes, simLinks } = preparedData;
     if (!nodes || !simLinks) return;
@@ -352,13 +458,13 @@ export default function Graph({
           enter
             .append("line")
             .attr("stroke-linecap", "round")
-            .attr("class", (d) => `link arrow${isGapLink(d) ? " gap" : ""}`)
-            .attr("stroke", (d) => (isGapLink(d) ? "#ef4444" : null))
+            .attr("class", (d) => `link arrow${effectiveLinkIsGap(d, progressByNode) ? " gap" : ""}`)
+            .attr("stroke", (d) => (effectiveLinkIsGap(d, progressByNode) ? COLORS.red : null))
             .attr("stroke-width", 1.5),
         (update) =>
           update
-            .attr("class", (d) => `link arrow${isGapLink(d) ? " gap" : ""}`)
-            .attr("stroke", (d) => (isGapLink(d) ? "#ef4444" : null)),
+            .attr("class", (d) => `link arrow${effectiveLinkIsGap(d, progressByNode) ? " gap" : ""}`)
+            .attr("stroke", (d) => (effectiveLinkIsGap(d, progressByNode) ? COLORS.red : null)),
         (exit) => exit.remove()
       );
 
@@ -371,16 +477,18 @@ export default function Graph({
         (enter) =>
           enter
             .append("circle")
-            .attr("class", (d) => `node ${d.type}${isGapNode(d) ? " gap" : ""}`)
+            .attr("class", (d) => `node ${d.type}${effectiveNodeIsGap(d, progressByNode) ? " gap" : ""}`)
             .attr("r", (d) => (d.type === "role" ? 10 : 7))
             .attr("stroke", "#fff")
             .attr("stroke-width", 1)
             .attr("tabIndex", 0)
+            .attr("fill", (d) => nodeFillColor(d, progressByNode))
             .on("click", (_event, d) => onNodeClick(d)),
         (update) =>
           update
-            .attr("class", (d) => `node ${d.type}${isGapNode(d) ? " gap" : ""}`)
-            .attr("r", (d) => (d.type === "role" ? 10 : 7)),
+            .attr("class", (d) => `node ${d.type}${effectiveNodeIsGap(d, progressByNode) ? " gap" : ""}`)
+            .attr("r", (d) => (d.type === "role" ? 10 : 7))
+            .attr("fill", (d) => nodeFillColor(d, progressByNode)),
         (exit) => exit.remove()
       );
 
@@ -429,10 +537,10 @@ export default function Graph({
     // Tick updates
     sim.on("tick", () => {
       link
-        .attr("x1", (d) => (d.source?.x ?? 0))
-        .attr("y1", (d) => (d.source?.y ?? 0))
-        .attr("x2", (d) => (d.target?.x ?? 0))
-        .attr("y2", (d) => (d.target?.y ?? 0));
+        .attr("x1", (d) => d.source?.x ?? 0)
+        .attr("y1", (d) => d.source?.y ?? 0)
+        .attr("x2", (d) => d.target?.x ?? 0)
+        .attr("y2", (d) => d.target?.y ?? 0);
 
       nodeSel.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
 
@@ -476,7 +584,7 @@ export default function Graph({
         sim.stop();
       } catch {}
     };
-  }, [preparedData, dims.width, dims.height]); // re-render when data or dimensions change
+  }, [preparedData, dims.width, dims.height, progressByNode]);
 
   // Stop simulation on unmount as a safeguard
   useEffect(() => {
@@ -576,12 +684,8 @@ export default function Graph({
       });
       // Persist using backend-expected shape: source/target as string ids
       const cleanLinks = (graph.links || []).map((l) => {
-        const src =
-          l.sourceId ??
-          (typeof l.source === "object" ? l.source.id : l.source);
-        const tgt =
-          l.targetId ??
-          (typeof l.target === "object" ? l.target.id : l.target);
+        const src = l.sourceId ?? (typeof l.source === "object" ? l.source.id : l.source);
+        const tgt = l.targetId ?? (typeof l.target === "object" ? l.target.id : l.target);
         return {
           source: String(src),
           target: String(tgt),
@@ -628,32 +732,34 @@ export default function Graph({
   return (
     <div>
       {/* Actions row */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <input
-          aria-label="Roadmap name"
-          placeholder="Roadmap name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={{
-            border: "1px solid #d1d5db",
-            borderRadius: 6,
-            padding: "8px 10px",
-            flex: 1,
-          }}
-        />
-        <button
-          type="button"
-          onClick={saveRoadmap}
-          disabled={saving || !graph}
-          className="btn"
-          style={{
-            background: "var(--button-bg)",
-            color: "var(--button-text)",
-          }}
-        >
-          {saving ? "Saving..." : "Save Roadmap"}
-        </button>
-      </div>
+      {!previewMode && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            aria-label="Roadmap name"
+            placeholder="Roadmap name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={{
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              padding: "8px 10px",
+              flex: 1,
+            }}
+          />
+          <button
+            type="button"
+            onClick={saveRoadmap}
+            disabled={saving || !graph}
+            className="btn"
+            style={{
+              background: "var(--button-bg)",
+              color: "var(--button-text)",
+            }}
+          >
+            {saving ? "Saving..." : "Save Roadmap"}
+          </button>
+        </div>
+      )}
 
       {err && (
         <div role="alert" style={{ color: "#b91c1c", marginBottom: 8 }}>
@@ -661,7 +767,12 @@ export default function Graph({
         </div>
       )}
 
-      <div className="graph-wrapper" ref={wrapperRef} aria-label="Roadmap graph">
+      <div
+        className="graph-wrapper"
+        ref={wrapperRef}
+        aria-label="Roadmap graph"
+        style={containerHeight ? { height: containerHeight } : undefined}
+      >
         {/* Toolbar */}
         <div className="graph-toolbar" aria-label="Graph controls">
           <button className="btn ghost" type="button" onClick={onResetZoom}>
@@ -695,7 +806,7 @@ export default function Graph({
 
         {/* Legend overlay */}
         <div className="graph-legend">
-          <Legend />
+          <Legend counts={legendCounts} />
         </div>
       </div>
 

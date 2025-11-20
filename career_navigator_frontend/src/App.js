@@ -3,6 +3,7 @@ import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import './App.css';
 import Dashboard from './pages/Dashboard';
 import Roadmap from './pages/Roadmap';
+import RoadmapLibrary from './pages/RoadmapLibrary';
 import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -22,6 +23,11 @@ function NavActions() {
       <Link to="/" className="nav-link">
         Dashboard
       </Link>
+      {isAuthenticated && (
+        <Link to="/roadmaps" className="nav-link">
+          Saved Roadmaps
+        </Link>
+      )}
       {isAuthenticated ? (
         <button className="btn ghost" onClick={onLogout} aria-label="Sign out">
           Sign out
@@ -81,6 +87,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Roadmap />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/roadmaps"
+              element={
+                <ProtectedRoute>
+                  <RoadmapLibrary />
                 </ProtectedRoute>
               }
             />

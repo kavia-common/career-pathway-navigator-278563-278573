@@ -1,14 +1,20 @@
 /**
- * Legend for graph progress states with accessible labels.
+ * Legend for graph progress states with accessible labels and dynamic counts.
  */
 import React from "react";
 
-export default function Legend() {
+// PUBLIC_INTERFACE
+export default function Legend({ counts }) {
+  /**
+   * PUBLIC: Render legend with live counts by state.
+   * counts?: { not_started?: number, in_progress?: number, completed?: number, gaps?: number }
+   */
+  const c = counts || {};
   const items = [
-    { color: "#9CA3AF", label: "Not Started" },
-    { color: "#F59E0B", label: "In Progress" },
-    { color: "#10B981", label: "Completed" },
-    { color: "#EF4444", label: "Gap Highlight" },
+    { color: "#9CA3AF", label: "Not Started", count: c.not_started || 0 },
+    { color: "#F59E0B", label: "In Progress", count: c.in_progress || 0 },
+    { color: "#3B82F6", label: "Completed", count: c.completed || 0 },
+    { color: "#EF4444", label: "Gap Highlight", count: c.gaps || 0 },
   ];
   return (
     <div
@@ -16,12 +22,12 @@ export default function Legend() {
       role="region"
       className="legend"
       style={{
-        background: "#ffffff",
-        border: "1px solid #e5e7eb",
+        background: "var(--overlay-bg)",
+        border: "1px solid var(--border-color)",
         borderRadius: 8,
         padding: 12,
-        color: "#111827",
-        maxWidth: 260,
+        color: "var(--overlay-fg)",
+        maxWidth: 280,
       }}
     >
       <div style={{ fontWeight: 600, marginBottom: 8 }}>Legend</div>
@@ -40,7 +46,9 @@ export default function Legend() {
                 border: "1px solid #374151",
               }}
             />
-            <span style={{ fontSize: 14 }}>{it.label}</span>
+            <span style={{ fontSize: 14 }}>
+              {it.label} ({it.count})
+            </span>
           </li>
         ))}
       </ul>

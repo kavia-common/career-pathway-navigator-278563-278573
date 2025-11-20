@@ -13,12 +13,13 @@ export default function Roadmap() {
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const fromRole = params.get('fromRole') || '';
   const toRole = params.get('toRole') || '';
+  const stateGraph = (location && location.state && location.state.initialGraph) || null;
 
   return (
     <div className="roadmap-layout" aria-label="Roadmap">
       <section className="panel" aria-labelledby="graph-title">
         <h2 id="graph-title">Career Roadmap</h2>
-        <Graph fromRole={fromRole} toRole={toRole} />
+        <Graph fromRole={fromRole} toRole={toRole} initialGraph={stateGraph} />
       </section>
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <ProgressPanel />
