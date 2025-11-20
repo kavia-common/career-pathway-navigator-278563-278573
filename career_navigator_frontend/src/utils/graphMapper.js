@@ -4,7 +4,7 @@ import { sanitizeLabel } from './sanitize';
  * Normalize backend payload into nodes/links suitable for d3-force.
  * Backend contract (FastAPI):
  *  {
- *    nodes: [{ id, label, type }],
+ *    nodes: [{ id, label, type, entity_id? }],
  *    links: [{ source, target, type, level?, from? }],
  *    meta: {...}
  *  }
@@ -19,6 +19,12 @@ export function mapGraphPayload(payload) {
         id: String(n.id),
         label: sanitizeLabel(n.label ?? n.id),
         type: n.type || 'skill',
+        entity_id:
+          typeof n.entity_id === 'number'
+            ? n.entity_id
+            : typeof n.entity_id === 'string' && /^\d+$/.test(n.entity_id)
+            ? Number(n.entity_id)
+            : undefined,
         is_gap: typeof n.is_gap === 'boolean' ? n.is_gap : undefined,
         color: typeof n.color === 'string' ? n.color : undefined,
         gap: typeof n.gap === 'number' ? n.gap : 0,

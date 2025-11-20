@@ -142,3 +142,43 @@ export function getBaseUrl() {
    */
   return BASE_URL;
 }
+
+/**
+// PUBLIC_INTERFACE
+ */
+export async function fetchRoleById(roleId) {
+  /** Fetch role detail by numeric id */
+  const id = String(roleId || '').trim();
+  if (!id) return { ok: false, status: 422, data: null, error: 'Missing roleId' };
+  return apiGet(`/roles/by-id/${encodeURIComponent(id)}`);
+}
+
+/**
+// PUBLIC_INTERFACE
+ */
+export async function fetchRoleByName(roleName) {
+  /** Fetch role detail by name */
+  const name = String(roleName || '').trim();
+  if (!name) return { ok: false, status: 422, data: null, error: 'Missing roleName' };
+  return apiGet(`/roles/${encodeURIComponent(name)}`);
+}
+
+/**
+// PUBLIC_INTERFACE
+ */
+export async function fetchSkillById(skillId) {
+  /** Fetch skill detail by numeric id */
+  const id = String(skillId || '').trim();
+  if (!id) return { ok: false, status: 422, data: null, error: 'Missing skillId' };
+  return apiGet(`/skills/${encodeURIComponent(id)}`);
+}
+
+/**
+// PUBLIC_INTERFACE
+ */
+export async function fetchSkillByName(skillName) {
+  /** Fetch skill detail by name */
+  const name = String(skillName || '').trim();
+  if (!name) return { ok: false, status: 422, data: null, error: 'Missing skillName' };
+  return apiGet(`/skills/by-name/${encodeURIComponent(name)}`);
+}

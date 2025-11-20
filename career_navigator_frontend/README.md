@@ -72,6 +72,10 @@ Security caveats:
 3) Graph renders with pan/zoom/reset
 - Graph component requests `GET /graph?fromRole=&toRole=`.
 - D3 force layout runs; use mouse wheel/pan to zoom; use "Reset Zoom" button to reset.
+- Click on a node to open a detail panel:
+  - Role nodes fetch details via `/roles/by-id/{id}` (or `/roles/{name}` fallback).
+  - Skill nodes fetch details via `/skills/{id}` (or `/skills/by-name/{name}` fallback).
+  - The panel shows name, description, and related metadata (required skills or roles).
 
 4) ProgressPanel reflects and updates status
 - Progress panel fetches role detail (`GET /roles/{name}`) and `GET /roles/{name}/progress`.

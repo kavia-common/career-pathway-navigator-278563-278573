@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { apiGet } from '../api/client';
+import { apiGet, fetchRoleById, fetchRoleByName, fetchSkillById, fetchSkillByName } from '../api/client';
 import { mapGraphPayload, getMockGraph } from '../utils/graphMapper';
+import DetailPanel from './DetailPanel';
 
 /**
 // PUBLIC_INTERFACE
@@ -17,6 +18,12 @@ export default function Graph({ fromRole, toRole, provideData }) {
   const gRef = useRef(null);
   const zoomRef = useRef(null);
   const simRef = useRef(null);
+
+  // Details state
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [detail, setDetail] = useState(null);
 
   const fetchData = async () => {
     setError('');
@@ -157,8 +164,73 @@ export default function Graph({ fromRole, toRole, provideData }) {
     });
   }, [data.nodes, nodePos]);
 
+  // Handle node click -> fetch detail
+  const handleNodeClick = async (n) => {
+    try {
+      setDetailError('');
+      setDetailOpen(true);
+      setDetailLoading(true);
+      setDetail(null);
+
+      if (n.type === 'role') {
+        const roleId =
+          typeof n.entity_id === 'number'
+            ? n.entity_id
+            : String(n.id || '').startsWith('role:')
+            ? Number(String(n.id).split(':').slice(-1)[0])
+            : undefined;
+        let res = roleId ? await fetchRoleById(roleId) : await fetchRoleByName(String(n.label || '').trim());
+        if (!res.ok) {
+          // try alternative method if available
+          if (roleId) {
+            res = await fetchRoleByName(String(n.label || '').trim());
+          } else if (String(n.id || '').startsWith('role:')) {
+            const altId = Number(String(n.id).split(':').slice(-1)[0]);
+            if (altId) res = await fetchRoleById(altId);
+          }
+        }
+        if (res.ok && res.data) {
+          setDetail({ type: 'role', id: res.data.id, name: res.data.name, description: res.data.description, skills: res.data.skills || [] });
+        } else {
+          setDetailError(res.error || 'Failed to fetch role details');
+        }
+      } else if (n.type === 'skill') {
+        const skillId = typeof n.entity_id === 'number' ? n.entity_id : undefined;
+        let res = skillId ? await fetchSkillById(skillId) : await fetchSkillByName(String(n.label || '').trim());
+        if (!res.ok && !skillId && String(n.id || '').startsWith('skill:')) {
+          const name = String(n.id).split(':').slice(1).join(':'); // preserve names with colons
+          res = await fetchSkillByName(name);
+        }
+        if (res.ok && res.data) {
+          setDetail({
+            type: 'skill',
+            id: res.data.id,
+            name: res.data.name,
+            description: res.data.description,
+            category: res.data.category,
+            roles: res.data.roles || [],
+          });
+        } else {
+          setDetailError(res.error || 'Failed to fetch skill details');
+        }
+      } else {
+        setDetailError('Unsupported node type');
+      }
+    } catch (e) {
+      setDetailError('Unexpected error while loading details');
+    }
+    setDetailLoading(false);
+  };
+
+  const handleNodeKeyDown = (n, e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleNodeClick(n);
+    }
+  };
+
   return (
-    <div className="graph-wrapper" role="region" aria-label="Career roadmap graph">
+    <div className="graph-wrapper" role="region" aria-label="Career roadmap graph" style={{ position: 'relative' }}>
       <div className="graph-toolbar" aria-live="polite">
         <span>
           Nodes: <strong>{data.counts.nodes}</strong>
@@ -209,18 +281,26 @@ export default function Graph({ fromRole, toRole, provideData }) {
           ))}
           {nodesWithPos.map((n) => {
             const colorProps = colorForNode(n);
+            const r = 14 + Math.min(10, Math.max(0, (n.gap || 0) * 3));
             return (
-              <g key={n.id} transform={`translate(${n.x || 0}, ${n.y || 0})`}>
+              <g
+                key={n.id}
+                transform={`translate(${n.x || 0}, ${n.y || 0})`}
+                onClick={() => handleNodeClick(n)}
+                onKeyDown={(e) => handleNodeKeyDown(n, e)}
+                role="button"
+                tabIndex={0}
+                aria-label={`${n.type} node: ${n.label}. ${n.is_gap ? 'Gap' : ''}`}
+                style={{ cursor: 'pointer' }}
+              >
                 <circle
-                  r={14 + Math.min(10, Math.max(0, n.gap * 3))}
+                  r={r}
                   {...(colorProps.className ? { className: colorProps.className } : {})}
                   {...(colorProps.style ? { style: colorProps.style } : {})}
-                  tabIndex={0}
-                  aria-label={`${n.type} node: ${n.label}`}
                 />
                 <text
                   x={0}
-                  y={28 + Math.min(10, Math.max(0, n.gap * 3))}
+                  y={r + 14}
                   textAnchor="middle"
                   fontSize="10"
                   fill="currentColor"
@@ -238,6 +318,14 @@ export default function Graph({ fromRole, toRole, provideData }) {
           {error}
         </div>
       ) : null}
+
+      <DetailPanel
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        loading={detailLoading}
+        error={detailError}
+        detail={detail}
+      />
     </div>
   );
 }
