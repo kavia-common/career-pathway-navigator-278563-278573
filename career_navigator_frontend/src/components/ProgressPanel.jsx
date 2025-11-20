@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost } from '../api/client';
 import { sanitizeLabel } from '../utils/sanitize';
+import { useLocation } from 'react-router-dom';
 
 const STATUS_OPTIONS = [
-  { value: 'none', label: 'Not Started' },
+  { value: 'not_started', label: 'Not Started' },
   { value: 'working_on', label: 'Working On' },
   { value: 'complete', label: 'Complete' },
 ];
@@ -12,40 +13,96 @@ const STATUS_OPTIONS = [
 // PUBLIC_INTERFACE
  */
 export default function ProgressPanel() {
-  /** Show progress list and allow updating statuses securely */
-  const [items, setItems] = useState([]);
+  /** Show progress list and allow updating statuses securely for the selected current role */
+  const location = useLocation();
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const fromRole = params.get('fromRole') || '';
+  const [roleName, setRoleName] = useState('');
+  const [skills, setSkills] = useState([]); // [{id, name}]
+  const [items, setItems] = useState([]); // [{skillId, name, status, current_level}]
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState('');
 
+  // Resolve roleName from role ID by listing roles and matching
+  const resolveRoleName = async (roleId) => {
+    const res = await apiGet('/roles');
+    if (res.ok && Array.isArray(res.data)) {
+      const found = res.data.find((r) => String(r.id) === String(roleId));
+      return found ? found.name : '';
+    }
+    return '';
+  };
+
   const load = async () => {
     setLoading(true);
-    const res = await apiGet('/progress');
-    if (res.ok && Array.isArray(res.data)) {
-      setItems(
-        res.data.map((i) => ({
-          skillId: String(i.skillId ?? i.id ?? ''),
-          name: sanitizeLabel(i.name || i.skill || i.id),
-          status: ['none', 'working_on', 'complete'].includes(i.status) ? i.status : 'none',
-        })),
-      );
-    } else {
-      // Graceful empty state
+    setNote('');
+    try {
+      if (!fromRole) {
+        setItems([]);
+        setNote('No role selected.');
+        setLoading(false);
+        return;
+      }
+      const name = await resolveRoleName(fromRole);
+      setRoleName(name);
+      // Fetch role details to list required skills
+      const roleDetail = name ? await apiGet(`/roles/${encodeURIComponent(name)}`) : { ok: false };
+      const reqSkills =
+        roleDetail.ok && roleDetail.data && Array.isArray(roleDetail.data.skills)
+          ? roleDetail.data.skills.map((rs) => ({
+              id: String(rs.skill.id),
+              name: sanitizeLabel(rs.skill.name),
+            }))
+          : [];
+      setSkills(reqSkills);
+
+      // Load progress for this role
+      const prog = name ? await apiGet(`/roles/${encodeURIComponent(name)}/progress`) : { ok: false };
+      const progressBySkillId =
+        prog.ok && Array.isArray(prog.data)
+          ? new Map(prog.data.map((p) => [String(p.skill_id), { status: p.status, current_level: p.current_level }]))
+          : new Map();
+
+      const merged = reqSkills.map((s) => {
+        const p = progressBySkillId.get(String(s.id));
+        return {
+          skillId: String(s.id),
+          name: s.name,
+          status: p?.status || 'not_started',
+          current_level: typeof p?.current_level === 'number' ? p.current_level : 0,
+        };
+      });
+
+      setItems(merged);
+    } catch (e) {
       setItems([]);
-      setNote('No progress data yet.');
+      setNote('Failed to load progress.');
     }
     setLoading(false);
   };
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromRole]);
 
   const updateStatus = async (skillId, status) => {
     // optimistic update
     setItems((prev) => prev.map((it) => (it.skillId === skillId ? { ...it, status } : it)));
-    const res = await apiPost('/progress', { skillId, status });
+    if (!roleName) return;
+    // POST /roles/{role_name}/progress?skill_name=&status=&current_level=
+    const skillName = skills.find((s) => String(s.id) === String(skillId))?.name || '';
+    const currentLevel =
+      items.find((it) => String(it.skillId) === String(skillId))?.current_level ?? 0;
+    const res = await apiPost(
+      `/roles/${encodeURIComponent(roleName)}/progress`,
+      {}, // body not required by backend
+      { skill_name: skillName, status, current_level: currentLevel },
+    );
     if (!res.ok) {
       setNote('Failed to update progress. Please try again.');
+      // revert if needed
+      setItems((prev) => prev.map((it) => (it.skillId === skillId ? { ...it, status: 'not_started' } : it)));
     }
   };
 
@@ -80,6 +137,7 @@ export default function ProgressPanel() {
           ))}
         </ul>
       )}
+      {note ? <div role="status" style={{ marginTop: 8, color: 'var(--text-muted)' }}>{note}</div> : null}
     </div>
   );
 }

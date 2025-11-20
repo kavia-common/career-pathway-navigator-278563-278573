@@ -24,7 +24,7 @@ export default function Graph({ fromRole, toRole, provideData }) {
       setData(mapGraphPayload(provideData));
       return;
     }
-    const res = await apiGet('/graph', { fromRole, toRole });
+    const res = await apiGet('/graph', { fromRole: String(fromRole || ''), toRole: String(toRole || '') });
     if (res.ok && res.data) {
       const mapped = mapGraphPayload(res.data);
       if (mapped.counts.nodes === 0) {

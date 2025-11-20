@@ -22,7 +22,13 @@ export default function RoleSelector() {
       const res = await apiGet('/roles');
       if (!active) return;
       if (res.ok && Array.isArray(res.data)) {
-        setRoles(res.data.map((r) => ({ id: String(r.id), name: sanitizeLabel(r.name || r.id) })));
+        const next = res.data.map((r) => ({ id: String(r.id), name: sanitizeLabel(r.name || r.id) }));
+        setRoles(next);
+        // preselect common seeded roles if present
+        const ca = next.find((x) => x.name === 'Chief Architect');
+        const cto = next.find((x) => x.name === 'CTO');
+        if (!currentRole && ca) setCurrentRole(ca.id);
+        if (!targetRole && cto) setTargetRole(cto.id);
       } else {
         setRoles([]);
       }
@@ -31,7 +37,7 @@ export default function RoleSelector() {
     return () => {
       active = false;
     };
-  }, []);
+  }, []); 
 
   const onSubmit = (e) => {
     e.preventDefault();

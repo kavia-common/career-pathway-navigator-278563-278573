@@ -2,11 +2,12 @@ import { sanitizeLabel } from './sanitize';
 
 /**
  * Normalize backend payload into nodes/links suitable for d3-force.
- * Expected backend payload example:
- * {
- *   nodes: [{ id, label, type: 'role'|'skill'|'gap', gap?: number }],
- *   edges: [{ source, target, kind }]
- * }
+ * Backend contract (FastAPI):
+ *  {
+ *    nodes: [{ id, label, type }],
+ *    links: [{ source, target, type, level?, from? }],
+ *    meta: {...}
+ *  }
  */
 // PUBLIC_INTERFACE
 export function mapGraphPayload(payload) {
@@ -21,13 +22,19 @@ export function mapGraphPayload(payload) {
         gap: typeof n.gap === 'number' ? n.gap : 0,
       }))
     : [];
-  const links = Array.isArray(payload.edges)
-    ? payload.edges.map((e) => ({
-        source: String(e.source),
-        target: String(e.target),
-        kind: e.kind || 'rel',
-      }))
+  // Prefer backend.links; fallback to payload.edges for older mocks
+  const rawLinks = Array.isArray(payload.links)
+    ? payload.links
+    : Array.isArray(payload.edges)
+    ? payload.edges
     : [];
+  const links = rawLinks.map((e) => ({
+    source: String(typeof e.source === 'object' ? e.source.id : e.source),
+    target: String(typeof e.target === 'object' ? e.target.id : e.target),
+    kind: e.type || e.kind || 'rel',
+    level: typeof e.level === 'number' ? e.level : undefined,
+    from: e.from || e.from_,
+  }));
 
   return {
     nodes,
