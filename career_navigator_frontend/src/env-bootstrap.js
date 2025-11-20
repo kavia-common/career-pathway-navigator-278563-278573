@@ -22,8 +22,27 @@
     // Preview-safe HTTPS default
     'https://vscode-internal-11652-beta.beta01.cloud.kavia.ai:3001';
 
+  // Resolve optional public auth stub variables (do not expose secrets; these are demo-only)
+  const AUTH_USER =
+    (typeof process !== 'undefined' &&
+      process &&
+      process.env &&
+      process.env.REACT_APP_AUTH_USER) ||
+    (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.REACT_APP_AUTH_USER) ||
+    undefined;
+
+  const AUTH_PASS =
+    (typeof process !== 'undefined' &&
+      process &&
+      process.env &&
+      process.env.REACT_APP_AUTH_PASS) ||
+    (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.REACT_APP_AUTH_PASS) ||
+    undefined;
+
   // Populate window.__ENV__ with normalized values
   window.__ENV__.REACT_APP_API_BASE = API_BASE;
+  if (AUTH_USER) window.__ENV__.REACT_APP_AUTH_USER = AUTH_USER;
+  if (AUTH_PASS) window.__ENV__.REACT_APP_AUTH_PASS = AUTH_PASS;
 
   // Optional: expose more public variables here in the future, e.g. SITE_URL
   // window.__ENV__.REACT_APP_SITE_URL = process.env.REACT_APP_SITE_URL || window.location.origin;

@@ -8,6 +8,7 @@ This project provides a minimal React template with a clean, modern UI and minim
 - **Modern UI**: Clean, responsive design with KAVIA brand styling
 - **Fast**: Minimal dependencies for quick loading times
 - **Simple**: Easy to understand and modify
+- **Auth Stub**: Frontend-only login gating with environment-configured demo credentials
 
 ## Getting Started
 
@@ -43,6 +44,22 @@ REACT_APP_API_BASE=https://vscode-internal-11652-beta.beta01.cloud.kavia.ai:3001
   - Open the browser console to ensure no CORS or network errors. The API client will warn if default base is used.
   - Visit `${REACT_APP_API_BASE}/docs` to confirm the backend endpoints.
 
+## Authentication (Frontend-only Stub)
+
+This project includes a minimal client-side authentication stub to gate routes:
+
+- Visit `/login` to sign in. Protected routes (e.g., `/`, `/roadmap`) will redirect to `/login` if unauthenticated.
+- Credentials are provided via environment variables:
+  - `REACT_APP_AUTH_USER`
+  - `REACT_APP_AUTH_PASS`
+- For local development, copy `.env.example` to `.env` and adjust values as needed.
+- On successful login, an `auth_token=true` flag is stored in `localStorage`. Use the "Sign out" button in the header to clear it.
+
+Security caveats:
+- This is a demo-only mechanism; all validation happens in the browser.
+- Do not use real credentials. Do not commit secrets to source control.
+- Replace with a real backend authentication flow for production.
+
 ## End-to-End Verification Checklist
 
 1) Roles load on Dashboard
@@ -73,6 +90,9 @@ REACT_APP_API_BASE=https://vscode-internal-11652-beta.beta01.cloud.kavia.ai:3001
   - Verify `REACT_APP_API_BASE` and that port 3001 is reachable.
 - Graph shows mock data:
   - This occurs when `/graph` is unreachable; fix API base and retry.
+- Login issues:
+  - Ensure `.env` contains `REACT_APP_AUTH_USER` and `REACT_APP_AUTH_PASS`, and restart `npm start` after changes.
+  - Clear browser `localStorage` if needed.
 
 ## Customization
 
