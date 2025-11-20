@@ -1,15 +1,23 @@
 /**
  * Simple API client helpers for the Career Navigator frontend.
- * Uses REACT_APP_BACKEND_URL as base. All functions return JSON.
+ * Uses REACT_APP_API_BASE (or REACT_APP_BACKEND_URL) as base. All functions return JSON.
+ * Provides thin wrappers apiGet/apiPost for legacy imports in components.
  */
 
-const BASE =
-  process.env.REACT_APP_BACKEND_URL ||
-  process.env.REACT_APP_API_BASE ||
+// Resolve API base from public env (window.__ENV__) first, then CRA process.env, then localhost.
+const API_BASE =
+  (typeof window !== "undefined" &&
+    window.__ENV__ &&
+    typeof window.__ENV__.REACT_APP_API_BASE === "string" &&
+    window.__ENV__.REACT_APP_API_BASE) ||
+  (typeof process !== "undefined" &&
+    process &&
+    process.env &&
+    (process.env.REACT_APP_API_BASE || process.env.REACT_APP_BACKEND_URL)) ||
   "http://localhost:3001";
 
 function buildUrl(path, params) {
-  const url = new URL(path, BASE);
+  const url = new URL(path, API_BASE);
   if (params && typeof params === "object") {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && String(v).length > 0) {
@@ -18,6 +26,51 @@ function buildUrl(path, params) {
     });
   }
   return url.toString();
+}
+
+async function parseJsonSafe(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// PUBLIC_INTERFACE
+export async function apiGet(path, params) {
+  /** Thin GET wrapper returning { ok, data, status, error } without leaking sensitive info. */
+  try {
+    const res = await fetch(buildUrl(path, params), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) {
+      return { ok: false, data, status: res.status, error: "Request failed" };
+    }
+    return { ok: true, data, status: res.status };
+  } catch {
+    return { ok: false, data: null, status: 0, error: "Network error" };
+  }
+}
+
+// PUBLIC_INTERFACE
+export async function apiPost(path, body = {}, params) {
+  /** Thin POST wrapper returning { ok, data, status, error } without leaking sensitive info. */
+  try {
+    const res = await fetch(buildUrl(path, params), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: body ? JSON.stringify(body) : "{}",
+    });
+    const data = await parseJsonSafe(res);
+    if (!res.ok) {
+      return { ok: false, data, status: res.status, error: "Request failed" };
+    }
+    return { ok: true, data, status: res.status };
+  } catch {
+    return { ok: false, data: null, status: 0, error: "Network error" };
+  }
 }
 
 // PUBLIC_INTERFACE
