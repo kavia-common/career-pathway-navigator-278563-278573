@@ -1,49 +1,51 @@
-import React, { useState, useEffect } from 'react';
-import logo from './logo.svg';
+import React, { useEffect, useState } from 'react';
+import { Routes, Route, Link } from 'react-router-dom';
 import './App.css';
+import Dashboard from './pages/Dashboard';
+import Roadmap from './pages/Roadmap';
 
 // PUBLIC_INTERFACE
-function App() {
+export default function App() {
+  /** App root shell providing routes and top navigation. */
   const [theme, setTheme] = useState('light');
 
-  // Effect to apply theme to document element
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // PUBLIC_INTERFACE
-  const toggleTheme = () => {
-    setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
-  };
+  const toggleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : 'light'));
 
   return (
     <div className="App">
-      <header className="App-header">
-        <button 
-          className="theme-toggle" 
+      <header className="topbar" role="banner" aria-label="Application header">
+        <nav className="navbar" aria-label="Primary">
+          <Link to="/" className="brand" aria-label="Career Navigator Home">
+            Career Navigator
+          </Link>
+          <div className="nav-actions">
+            <Link to="/" className="nav-link">
+              Dashboard
+            </Link>
+          </div>
+        </nav>
+        <button
+          className="theme-toggle"
           onClick={toggleTheme}
           aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+          title="Toggle color theme"
         >
           {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
         </button>
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <p>
-          Current theme: <strong>{theme}</strong>
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
       </header>
+      <main className="main-container" role="main">
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/roadmap" element={<Roadmap />} />
+        </Routes>
+      </main>
+      <footer className="footer" role="contentinfo">
+        <small>© {new Date().getFullYear()} Career Navigator MVP</small>
+      </footer>
     </div>
   );
 }
-
-export default App;
